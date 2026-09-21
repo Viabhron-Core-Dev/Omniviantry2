@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/custom_tab_strip_root"
+    android:layout_width="match_parent"
+    android:layout_height="56dp"
+    android:background="@drawable/bg_custom_tab_strip"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp">
+
+    <!-- Scrollable container for tab bubbles -->
+    <HorizontalScrollView
+        android:id="@+id/tab_scroll_view"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/tab_bubbles_container"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <!-- Slot 0 -->
+            <FrameLayout
+                android:id="@+id/tab_slot_0"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginEnd="6dp"
+                android:visibility="gone">
+                <ImageView
+                    android:id="@+id/tab_slot_0_bg"
+                    android:layout_width="42dp"
+                    android:layout_height="42dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_tab_bubble_normal"
+                    android:contentDescription="Tab 0" />
+                <ImageView
+                    android:id="@+id/tab_slot_0_icon"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_tab_globe"
+                    android:contentDescription="Icon 0" />
+                <ImageView
+                    android:id="@+id/tab_slot_0_close"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:layout_gravity="top|end"
+                    android:background="@drawable/bg_tab_close_btn"
+                    android:padding="2dp"
+                    android:src="@drawable/ic_tab_close"
+                    android:contentDescription="Close Tab 0" />
+            </FrameLayout>
+
+            <!-- Slot 1 -->
+            <FrameLayout
+                android:id="@+id/tab_slot_1"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginEnd="6dp"
+                android:visibility="gone">
+                <ImageView
+                    android:id="@+id/tab_slot_1_bg"
+                    android:layout_width="42dp"
+                    android:layout_height="42dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_tab_bubble_normal"
+                    android:contentDescription="Tab 1" />
+                <ImageView
+                    android:id="@+id/tab_slot_1_icon"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_tab_globe"
+                    android:contentDescription="Icon 1" />
+                <ImageView
+                    android:id="@+id/tab_slot_1_close"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:layout_gravity="top|end"
+                    android:background="@drawable/bg_tab_close_btn"
+                    android:padding="2dp"
+                    android:src="@drawable/ic_tab_close"
+                    android:contentDescription="Close Tab 1" />
+            </FrameLayout>
+
+            <!-- Slot 2 -->
+            <FrameLayout
+                android:id="@+id/tab_slot_2"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginEnd="6dp"
+                android:visibility="gone">
+                <ImageView
+                    android:id="@+id/tab_slot_2_bg"
+                    android:layout_width="42dp"
+                    android:layout_height="42dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_tab_bubble_normal"
+                    android:contentDescription="Tab 2" />
+                <ImageView
+                    android:id="@+id/tab_slot_2_icon"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_tab_globe"
+                    android:contentDescription="Icon 2" />
+                <ImageView
+                    android:id="@+id/tab_slot_2_close"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:layout_gravity="top|end"
+                    android:background="@drawable/bg_tab_close_btn"
+                    android:padding="2dp"
+                    android:src="@drawable/ic_tab_close"
+                    android:contentDescription="Close Tab 2" />
+            </FrameLayout>
+
+            <!-- Slot 3 -->
+            <FrameLayout
+                android:id="@+id/tab_slot_3"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginEnd="6dp"
+                android:visibility="gone">
+                <ImageView
+                    android:id="@+id/tab_slot_3_bg"
+                    android:layout_width="42dp"
+                    android:layout_height="42dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_tab_bubble_normal"
+                    android:contentDescription="Tab 3" />
+                <ImageView
+                    android:id="@+id/tab_slot_3_icon"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_tab_globe"
+                    android:contentDescription="Icon 3" />
+                <ImageView
+                    android:id="@+id/tab_slot_3_close"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:layout_gravity="top|end"
+                    android:background="@drawable/bg_tab_close_btn"
+                    android:padding="2dp"
+                    android:src="@drawable/ic_tab_close"
+                    android:contentDescription="Close Tab 3" />
+            </FrameLayout>
+
+            <!-- Slot 4 -->
+            <FrameLayout
+                android:id="@+id/tab_slot_4"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginEnd="6dp"
+                android:visibility="gone">
+                <ImageView
+                    android:id="@+id/tab_slot_4_bg"
+                    android:layout_width="42dp"
+                    android:layout_height="42dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_tab_bubble_normal"
+                    android:contentDescription="Tab 4" />
+                <ImageView
+                    android:id="@+id/tab_slot_4_icon"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_tab_globe"
+                    android:contentDescription="Icon 4" />
+                <ImageView
+                    android:id="@+id/tab_slot_4_close"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:layout_gravity="top|end"
+                    android:background="@drawable/bg_tab_close_btn"
+                    android:padding="2dp"
+                    android:src="@drawable/ic_tab_close"
+                    android:contentDescription="Close Tab 4" />
+            </FrameLayout>
+
+            <!-- Slot 5 -->
+            <FrameLayout
+                android:id="@+id/tab_slot_5"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginEnd="6dp"
+                android:visibility="gone">
+                <ImageView
+                    android:id="@+id/tab_slot_5_bg"
+                    android:layout_width="42dp"
+                    android:layout_height="42dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_tab_bubble_normal"
+                    android:contentDescription="Tab 5" />
+                <ImageView
+                    android:id="@+id/tab_slot_5_icon"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_tab_globe"
+                    android:contentDescription="Icon 5" />
+                <ImageView
+                    android:id="@+id/tab_slot_5_close"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:layout_gravity="top|end"
+                    android:background="@drawable/bg_tab_close_btn"
+                    android:padding="2dp"
+                    android:src="@drawable/ic_tab_close"
+                    android:contentDescription="Close Tab 5" />
+            </FrameLayout>
+
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <!-- Pinned [+] Button to Add Tab -->
+    <FrameLayout
+        android:id="@+id/tab_btn_add"
+        android:layout_width="42dp"
+        android:layout_height="42dp"
+        android:layout_marginStart="6dp"
+        android:background="@drawable/bg_tab_bubble_normal">
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_tab_add"
+            android:contentDescription="Add Tab" />
+    </FrameLayout>
+
+</LinearLayout>

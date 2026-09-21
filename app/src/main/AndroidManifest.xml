@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <permission
+        android:name="com.ai.app.permission.ACCESS_PWA_DATA"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.ai.app.permission.ACCESS_PWA_DATA" />
+
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.RECOGNIZE_SPEECH" />
+        </intent>
+        <intent>
+            <action android:name="com.ai.app.ACTION_PWA_HOST" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
+        android:theme="@style/Theme.MyApplication">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.MyApplication"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="omniroot" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity>
+
+        <activity
+            android:name=".ui.artifacts.StandaloneArtifactActivity"
+            android:exported="false"
+            android:documentLaunchMode="always"
+            android:label="Artifact Mini App"
+            android:theme="@style/Theme.MyApplication"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".ui.webaiprovider.WebAiQuickAddActivity"
+            android:exported="false"
+            android:theme="@style/Theme.TransparentDialog"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
+
+        <receiver
+            android:name=".widget.QuickChatWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/quick_chat_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".engine.webaiprovider.WebAiTabBroadcastReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.ACTION_CUSTOM_TAB_SWITCH" />
+                <action android:name="com.example.ACTION_CUSTOM_TAB_CLOSE" />
+                <action android:name="com.example.ACTION_CUSTOM_TAB_ADD" />
+            </intent-filter>
+        </receiver>
+        
+        <service 
+            android:name=".engine.omniroot.service.OmniRootProxyService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <service
+            android:name=".engine.service.AiInferenceService"
+            android:permission="com.ai.app.permission.ACCESS_PWA_DATA"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.ai.app.ACTION_AI_INFERENCE_SERVICE" />
+            </intent-filter>
+        </service>
+
+        <provider
+            android:name=".engine.provider.PwaContentProvider"
+            android:authorities="com.example.provider.pwa"
+            android:exported="true"
+            android:readPermission="com.ai.app.permission.ACCESS_PWA_DATA"
+            android:writePermission="com.ai.app.permission.ACCESS_PWA_DATA"
+            android:grantUriPermissions="true" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+
+</manifest>
