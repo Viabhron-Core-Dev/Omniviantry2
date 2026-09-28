@@ -72,8 +72,99 @@ fun WebAiProviderSettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item {
+                val currentEngine by WebAiProviderManager.browserEngine.collectAsState()
+                val isFirefoxFound = remember(context) { WebAiProviderManager.isFirefoxInstalled(context) }
+                val detectedFirefoxPkg = remember(context) { WebAiProviderManager.getInstalledFirefoxPackage(context) }
+
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFF7139)), // Firefox brand orange
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Language,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Default Browser Engine",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(
+                                    if (currentEngine == WebAiProviderManager.ENGINE_FIREFOX) {
+                                        if (isFirefoxFound) "Firefox ($detectedFirefoxPkg)" else "Firefox (Default with bottom toolbar)"
+                                    } else if (currentEngine == WebAiProviderManager.ENGINE_CHROME) {
+                                        "Chrome / Chromium"
+                                    } else {
+                                        "System Default Browser"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "Web AI sessions launch in Firefox by default with a native bottom toolbar for fast multi-tab switching, profile isolation, and session controls.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = currentEngine == WebAiProviderManager.ENGINE_FIREFOX,
+                                onClick = { WebAiProviderManager.setPreferredBrowserEngine(WebAiProviderManager.ENGINE_FIREFOX) },
+                                label = { Text("Firefox (Default)") },
+                                leadingIcon = if (currentEngine == WebAiProviderManager.ENGINE_FIREFOX) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                } else null
+                            )
+                            FilterChip(
+                                selected = currentEngine == WebAiProviderManager.ENGINE_CHROME,
+                                onClick = { WebAiProviderManager.setPreferredBrowserEngine(WebAiProviderManager.ENGINE_CHROME) },
+                                label = { Text("Chrome") },
+                                leadingIcon = if (currentEngine == WebAiProviderManager.ENGINE_CHROME) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                } else null
+                            )
+                            FilterChip(
+                                selected = currentEngine == WebAiProviderManager.ENGINE_SYSTEM,
+                                onClick = { WebAiProviderManager.setPreferredBrowserEngine(WebAiProviderManager.ENGINE_SYSTEM) },
+                                label = { Text("System") },
+                                leadingIcon = if (currentEngine == WebAiProviderManager.ENGINE_SYSTEM) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                } else null
+                            )
+                        }
+                    }
+                }
+            }
+
             item {
                 Card(
                     shape = RoundedCornerShape(12.dp),
@@ -92,7 +183,7 @@ fun WebAiProviderSettingsScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            "These services run natively in Chrome Custom Tabs with full OAuth passkey login and zero 403 blocks. Add profiles for personal or work accounts.",
+                            "These services run natively in Custom Tabs with full OAuth passkey login and zero 403 blocks. Add profiles for personal or work accounts.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

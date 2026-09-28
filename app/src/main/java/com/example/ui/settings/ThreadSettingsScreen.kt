@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 
 enum class ThreadSettingTab(val title: String) {
     UNIVERSAL("Universal"),
+    TOOLS("Tools & Skills 🛠️"),
     AGENTS("Agents"),
     VERSIONS("Versions"),
     GITHUB("GitHub"),
@@ -104,6 +105,35 @@ fun ThreadSettingsScreen(
                             val db = com.example.engine.db.AppDatabase.getDatabase(context)
                             db.workspaceConfigDao().saveConfig(updatedConfig)
                             com.example.engine.fs.LocalFileManager.setWorkspaceName(workspaceId, updatedConfig.threadName)
+                        }
+                    }
+                    ThreadSettingTab.TOOLS -> {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            item {
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f)
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(Icons.Default.Build, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                                        Text(
+                                            "Foldable Tools Directory: Interrogate, enable, or disable capabilities for this session. Dangerous tools trigger mandatory user approval.",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                            }
+                            item {
+                                ToolAccordionDirectory(sessionId = workspaceId)
+                            }
                         }
                     }
                     ThreadSettingTab.AGENTS -> AgentsSettingsContent()
@@ -329,13 +359,18 @@ fun GithubSettingsContent() {
 fun IntegrationsSettingsContent(workspaceId: String) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var secretsMap by remember { mutableStateOf(ThreadSecretsStore.getSecrets(context, workspaceId)) }
-    var configureKeyDialog by remember { mutableStateOf<Pair<String, String>?>(null) } // KeyName to DefaultValue
+    var configureIntegrationDialog by remember { mutableStateOf<Triple<String, String, List<String>>?>(null) }
 
     fun refresh() {
         secretsMap = ThreadSecretsStore.getSecrets(context, workspaceId)
     }
 
     val integrations = listOf(
+        Triple(
+            "Google AI Studio / Gemini API",
+            "Gemini multimodal model API key, tuned endpoints, and system prompt contexts.",
+            listOf("GEMINI_API_KEY")
+        ),
         Triple(
             "GitHub Octokit / REST API",
             "Direct API access to repos, issues, and PR automation without leaking into git commits.",
@@ -380,7 +415,8 @@ fun IntegrationsSettingsContent(workspaceId: String) {
             }
         }
 
-        items(integrations) { (name, desc, requiredKeys) ->
+        items(integrations) { item ->
+            val (name, desc, requiredKeys) = item
             val allConfigured = requiredKeys.all { secretsMap[it]?.isNotBlank() == true }
 
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
@@ -418,7 +454,7 @@ fun IntegrationsSettingsContent(workspaceId: String) {
                     ) {
                         OutlinedButton(
                             onClick = {
-                                configureKeyDialog = requiredKeys.first() to (secretsMap[requiredKeys.first()] ?: "")
+                                configureIntegrationDialog = item
                             }
                         ) {
                             Text(if (allConfigured) "Edit Keys" else "Configure")
@@ -430,36 +466,51 @@ fun IntegrationsSettingsContent(workspaceId: String) {
     }
 
     // Configure dialog
-    if (configureKeyDialog != null) {
-        val (keyName, initialVal) = configureKeyDialog!!
-        var enteredValue by remember { mutableStateOf(initialVal) }
+    if (configureIntegrationDialog != null) {
+        val (integrationName, _, requiredKeys) = configureIntegrationDialog!!
+        val keyValues = remember(configureIntegrationDialog) {
+            mutableStateMapOf<String, String>().apply {
+                requiredKeys.forEach { k -> put(k, secretsMap[k] ?: "") }
+            }
+        }
 
         AlertDialog(
-            onDismissRequest = { configureKeyDialog = null },
-            title = { Text("Configure $keyName") },
+            onDismissRequest = { configureIntegrationDialog = null },
+            title = { Text("Configure $integrationName") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Stored in private app vault outside workspace filesystem.", style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(
-                        value = enteredValue,
-                        onValueChange = { enteredValue = it },
-                        label = { Text(keyName) },
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth()
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Stored in private app vault outside workspace filesystem. Zero cleartext exposure to AI filesystem tools.",
+                        style = MaterialTheme.typography.bodySmall
                     )
+                    requiredKeys.forEach { keyName ->
+                        OutlinedTextField(
+                            value = keyValues[keyName] ?: "",
+                            onValueChange = { keyValues[keyName] = it },
+                            label = { Text(keyName) },
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             },
             confirmButton = {
                 Button(onClick = {
-                    ThreadSecretsStore.saveSecret(context, workspaceId, keyName, enteredValue)
+                    keyValues.forEach { (k, v) ->
+                        if (v.isNotBlank()) {
+                            ThreadSecretsStore.saveSecret(context, workspaceId, k, v)
+                        } else {
+                            ThreadSecretsStore.deleteSecret(context, workspaceId, k)
+                        }
+                    }
                     refresh()
-                    configureKeyDialog = null
+                    configureIntegrationDialog = null
                 }) {
-                    Text("Save")
+                    Text("Save All")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { configureKeyDialog = null }) {
+                TextButton(onClick = { configureIntegrationDialog = null }) {
                     Text("Cancel")
                 }
             }

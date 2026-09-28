@@ -28,11 +28,11 @@ Phase 11 implements the cognitive core, modular persistent memory, structured mu
 
 ---
 
-### Mini-Phase 11.3: Modular Memory Store & Semantic Recall (Room DB) [IN QUEUE]
+### Mini-Phase 11.3: Modular Memory Store & Semantic Recall (Room DB) [COMPLETED]
 - **`MemoryEntity.kt`**:
   - Fields: `id: Long`, `key: String`, `content: String`, `category: String` (`USER_PREFERENCE`, `PROJECT_RULE`, `ARCHITECTURAL_DECISION`, `SNIPPET`), `relevanceScore: Float`, `createdAt: Long`, `lastAccessedAt: Long`, `isPinned: Boolean`.
 - **`MemoryDao.kt`**: Keyword searching, category filtering, access timestamp tracking, pin/unpin toggles, and deletion.
-- **Room Database Migration (`MIGRATION_18_19`)**: Adds the `memories` table to `AppDatabase.kt` (DB version 19).
+- **Room Database Migration (`MIGRATION_21_22`)**: Adds the `memories` table to `AppDatabase.kt` (DB version 22).
 - **`MemoryRepository.kt`**: Repository abstraction for memory storage, keyword scoring, and semantic retrieval.
 - **LogKeeper Integration**:
   - `LogKeeper.log("MemoryRepository", "RecallQuery", "Queried memories for keywords; found N matches")`
@@ -40,7 +40,7 @@ Phase 11 implements the cognitive core, modular persistent memory, structured mu
 
 ---
 
-### Mini-Phase 11.4: Dynamic Context & System Prompt Injector
+### Mini-Phase 11.4: Dynamic Context & System Prompt Injector [COMPLETED]
 - **`PromptAssembler.kt`**:
   - Injects base identity and developer guidelines.
   - Reads root `AGENTS.md` and `GEMINI.md` rules from the active workspace.
@@ -52,7 +52,7 @@ Phase 11 implements the cognitive core, modular persistent memory, structured mu
 
 ---
 
-### Mini-Phase 11.5: Surgical Search & Replace Tool (`edit_file`)
+### Mini-Phase 11.5: Surgical Search & Replace Tool (`edit_file`) [COMPLETED]
 - **`SurgicalEditor.kt`**:
   - Exact target substring matching with strict uniqueness verification.
   - Whitespace and line-ending normalization (`\r\n` vs `\n`).
@@ -65,7 +65,7 @@ Phase 11 implements the cognitive core, modular persistent memory, structured mu
 
 ---
 
-### Mini-Phase 11.6: Unified Diff & Patch Engine
+### Mini-Phase 11.6: Unified Diff & Patch Engine [COMPLETED]
 - **`UnifiedDiffParser.kt`**: Parses standard Git / unified diff syntax (`@@ -x,y +a,b @@`) into structured `DiffHunk` and `DiffOperation` objects.
 - **`PatchApplier.kt`**: Applies hunks line-by-line with fuzzy line offset matching (+/- 3 lines) if lines shifted.
 - **`DiffPreviewCard.kt`**: Compose UI component with red deletions, green additions, and a 1-tap "Review & Apply" preview.
@@ -75,16 +75,25 @@ Phase 11 implements the cognitive core, modular persistent memory, structured mu
 
 ---
 
-### Mini-Phase 11.7: Brain & Memory Management UI
+### Mini-Phase 11.7: Brain & Memory Management UI [COMPLETED]
 - **`MemoryManagementScreen.kt`**:
-  - Search bar and category filter chips (`All`, `Rules`, `Preferences`, `Decisions`).
-  - Add, edit, pin, and delete dialogs.
+  - Real-time search bar and category filter chips (`All`, `Rules`, `Preferences`, `Decisions`, `Snippets`).
+  - Add, edit, pin/unpin, and delete dialogs.
+  - Quick defaults seed helper for instant architectural rules.
 - **`BrainSettingsCard.kt`**:
-  - "Show Thinking Process" toggle in chat settings.
-  - Memory recall threshold slider.
-  - Active token budget and context pressure preview bar.
+  - "Show Thinking Process" toggle in chat controls.
+  - Semantic memory recall threshold slider with strictness explanations.
+  - Active token budget and context pressure preview bar with color-coded headroom warnings.
+  - One-tap link to open `MemoryManagementScreen`.
+- **`BrainSettingsStore.kt`**:
+  - Persistent SharedPreferences and reactive StateFlows for thinking visibility and recall threshold.
+  - Connected to `PromptAssembler.kt` and `ChatScreen.kt`.
 - **LogKeeper Integration**:
   - `LogKeeper.log("MemoryUI", "UserEdit", "User manually modified memory id=X")`
+  - `LogKeeper.log("MemoryUI", "UserCreate", ...)`
+  - `LogKeeper.log("MemoryUI", "UserDelete", ...)`
+  - `LogKeeper.log("BrainSettings", "ToggleThinking", ...)`
+  - `LogKeeper.log("BrainSettings", "UpdateThreshold", ...)`
 
 ---
 

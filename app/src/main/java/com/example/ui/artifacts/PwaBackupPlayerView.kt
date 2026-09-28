@@ -135,15 +135,26 @@ fun PwaBackupPlayerView(
                         databaseEnabled = true
                         allowFileAccess = true
                         allowContentAccess = true
+                        allowFileAccessFromFileURLs = true
+                        allowUniversalAccessFromFileURLs = true // Enables cross-origin fetch/XMLHttpRequest for internet connection
+                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                         useWideViewPort = true
                         loadWithOverviewMode = true
                         mediaPlaybackRequiresUserGesture = false
+                        javaScriptCanOpenWindowsAutomatically = true
+                        cacheMode = WebSettings.LOAD_DEFAULT
                     }
 
                     // Attach LogKeeper Catcher
                     LogKeeperCatcher.attachToWebView(this, artifact.title) { err ->
                         lastError = err
                     }
+
+                    val corsHeaders = mapOf(
+                        "Access-Control-Allow-Origin" to "*",
+                        "Access-Control-Allow-Methods" to "GET, POST, PUT, DELETE, OPTIONS, HEAD",
+                        "Access-Control-Allow-Headers" to "*"
+                    )
 
                     // Backup Local Interceptor Client
                     webViewClient = object : WebViewClient() {
@@ -164,7 +175,7 @@ fun PwaBackupPlayerView(
                                     "UTF-8",
                                     503,
                                     "Service Unavailable (Offline Mode)",
-                                    emptyMap(),
+                                    corsHeaders,
                                     java.io.ByteArrayInputStream("Offline Mode Active".toByteArray())
                                 )
                             }
@@ -174,6 +185,18 @@ fun PwaBackupPlayerView(
                                 try {
                                     Thread.sleep(pwaSettings.latencyMs)
                                 } catch (_: InterruptedException) {}
+                            }
+
+                            // Handle CORS Pre-Flight OPTIONS requests for local server
+                            if (request?.method.equals("OPTIONS", ignoreCase = true) && !isExternal) {
+                                return WebResourceResponse(
+                                    "text/plain",
+                                    "UTF-8",
+                                    204,
+                                    "No Content",
+                                    corsHeaders,
+                                    java.io.ByteArrayInputStream(ByteArray(0))
+                                )
                             }
 
                             if (repoDir == null || !repoDir.exists()) return null
@@ -193,17 +216,41 @@ fun PwaBackupPlayerView(
                                     return WebResourceResponse(
                                         mimeType,
                                         encoding,
+                                        200,
+                                        "OK",
+                                        corsHeaders,
                                         FileInputStream(requestedFile)
                                     )
                                 } catch (e: Exception) {
                                     LogKeeper.log("WARNING", "BackupPlayer", "Error reading local asset ${requestedFile.name}: ${e.message}")
                                 }
                             }
+
+                            // SPA routing fallback: if request is local and path has no extension, serve index.html
+                            if (!isExternal && !cleanPath.contains(".") && File(repoDir, "index.html").exists()) {
+                                try {
+                                    return WebResourceResponse(
+                                        "text/html",
+                                        "UTF-8",
+                                        200,
+                                        "OK",
+                                        corsHeaders,
+                                        FileInputStream(File(repoDir, "index.html"))
+                                    )
+                                } catch (_: Exception) {}
+                            }
+
                             return super.shouldInterceptRequest(view, request)
+                        }
+
+                        override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                            super.onPageStarted(view, url, favicon)
+                            view?.evaluateJavascript(LogKeeperCatcher.getErrorCaptureScript(), null)
                         }
 
                         override fun onPageFinished(view: WebView?, url: String?) {
                             super.onPageFinished(view, url)
+                            view?.evaluateJavascript(LogKeeperCatcher.getErrorCaptureScript(), null)
                             LogKeeper.log("INFO", "BackupPlayer", "Backup loader finished rendering: $url")
                             // Inject secrets
                             val activeWs = artifact.workspaceId ?: "artifact_${artifact.id}"

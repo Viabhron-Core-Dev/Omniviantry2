@@ -59,15 +59,33 @@ object AgenticTurnExecutor {
         var currentIteration = 0
         val activeTools = getActiveOmniTools(context, sessionId)
 
+        // Dynamic Context Assembly (Phase 11.4: Base Persona, Workspace Rules, Memories & Tools)
+        val latestPrompt = workingMessages.lastOrNull { it.role == MessageRole.USER }?.text ?: ""
+        val assemblyResult = try {
+            com.example.engine.brain.PromptAssembler.assembleFromChatMessages(
+                context = context,
+                sessionId = sessionId,
+                userPrompt = latestPrompt,
+                messages = workingMessages,
+                targetModel = targetModel,
+                customSystemPrompt = systemPrompt
+            )
+        } catch (e: Exception) {
+            LogKeeper.log("ERROR", "AgenticTurnExecutor", "PromptAssembler failed: ${e.message}")
+            null
+        }
+
+        val effectiveSystemPrompt = assemblyResult?.systemPrompt ?: systemPrompt
+
         LogKeeper.log(
             "AgenticTurnExecutor",
             "TurnStarted",
-            "Session '$sessionId', Target Model '$targetModel', Active Tools: ${activeTools.size}"
+            "Session '$sessionId', Target Model '$targetModel', Active Tools: ${activeTools.size}, Injected Memories: ${assemblyResult?.injectedMemories?.size ?: 0}"
         )
 
         while (currentIteration < MAX_AGENTIC_ITERATIONS) {
             currentIteration++
-            val omniMessages = prepareOmniMessages(workingMessages, systemPrompt)
+            val omniMessages = prepareOmniMessages(workingMessages, effectiveSystemPrompt)
 
             // Step 1: Query Provider with Fallback Chain Auto-Routing
             val executionResult: FallbackExecutionResult = FallbackChainRouter.dispatchWithFallback(

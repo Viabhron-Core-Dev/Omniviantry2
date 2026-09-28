@@ -26,12 +26,24 @@ object ZipUtils {
             ZipInputStream(BufferedInputStream(FileInputStream(zipFile))).use { zis ->
                 var entry: ZipEntry? = zis.nextEntry
                 while (entry != null) {
-                    val newFile = File(targetDirectory, entry.name)
+                    val entryName = entry.name
+                    // Skip OS metadata and hidden artifacts
+                    if (entryName.startsWith("__MACOSX") || entryName.contains("/__MACOSX") ||
+                        entryName.endsWith(".DS_Store") || entryName.endsWith("Thumbs.db")
+                    ) {
+                        zis.closeEntry()
+                        entry = zis.nextEntry
+                        continue
+                    }
+
+                    val newFile = File(targetDirectory, entryName)
                     // Security check to prevent Zip Slip vulnerability
                     val canonicalDestPath = targetDirectory.canonicalPath
                     val canonicalNewFilePath = newFile.canonicalPath
-                    if (!canonicalNewFilePath.startsWith(canonicalDestPath + File.separator)) {
-                        val errMsg = "ZipSlip blocked! Entry is outside target dir: ${entry.name}"
+                    if (!canonicalNewFilePath.startsWith(canonicalDestPath + File.separator) &&
+                        canonicalNewFilePath != canonicalDestPath
+                    ) {
+                        val errMsg = "ZipSlip blocked! Entry is outside target dir: $entryName"
                         LogKeeper.log("ERROR", "ZipUtils", errMsg)
                         return@withContext Result.failure(Exception(errMsg))
                     }
@@ -41,7 +53,7 @@ object ZipUtils {
                     } else {
                         newFile.parentFile?.mkdirs()
                         BufferedOutputStream(FileOutputStream(newFile)).use { bos ->
-                            val buffer = ByteArray(4096)
+                            val buffer = ByteArray(8192)
                             var len: Int
                             while (zis.read(buffer).also { len = it } > 0) {
                                 bos.write(buffer, 0, len)

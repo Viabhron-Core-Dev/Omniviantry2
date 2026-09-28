@@ -73,6 +73,16 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.first
 import com.example.engine.omniroot.local.LocalAiManager
 import com.example.utils.LogKeeper
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Slideshow
+import androidx.compose.material.icons.filled.Attachment
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
+import com.example.ui.code.StagedReference
+import com.example.ui.code.WorkspaceChatBridge
 import kotlinx.coroutines.flow.onCompletion
 import com.example.engine.omniroot.local.LlamaEngine
 import kotlinx.coroutines.flow.first
@@ -143,6 +153,14 @@ fun ChatScreen(
     var inputText by remember { mutableStateOf("") }
     var pendingAttachmentUri by remember { mutableStateOf<Uri?>(null) }
     var pendingCameraPhotoUri by remember { mutableStateOf<Uri?>(null) }
+
+    // Check if prompt was staged from Workspace Tab ("Pass to AI" / "Mark-to-Chat")
+    LaunchedEffect(Unit) {
+        val staged = com.example.ui.code.WorkspaceChatBridge.consumeStagedPrompt()
+        if (!staged.isNullOrBlank()) {
+            inputText = if (inputText.isBlank()) staged else "$inputText\n$staged"
+        }
+    }
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
@@ -358,7 +376,14 @@ fun ChatScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+        val staged = WorkspaceChatBridge.consumeStagedPrompt()
+        if (!staged.isNullOrBlank()) {
+            inputText = if (inputText.isBlank()) staged else "$inputText\n$staged"
+        }
+    }
 
+    val stagedReferences by WorkspaceChatBridge.stagedReferences.collectAsState()
     
     fun saveMessage(msg: ChatMessage) {
         if (msg.text != "Thinking...") {
@@ -383,9 +408,10 @@ fun ChatScreen(
     val dispatchPrompt: (String) -> Unit = { rawPrompt ->
         val promptToSend = rawPrompt.trim()
         val currentAttachment = pendingAttachmentUri
-        if (promptToSend.isNotBlank() || currentAttachment != null) {
+        val hasStagedRefs = WorkspaceChatBridge.getBasketCount() > 0
+        if (promptToSend.isNotBlank() || currentAttachment != null || hasStagedRefs) {
             keyboardController?.hide()
-            val prompt = buildString {
+            val userTextWithAttachment = buildString {
                 if (promptToSend.isNotBlank()) {
                     append(promptToSend)
                 }
@@ -394,6 +420,8 @@ fun ChatScreen(
                     append("[Attached Image: $currentAttachment]")
                 }
             }
+            val prompt = WorkspaceChatBridge.compileBasketPrompt(userTextWithAttachment)
+            WorkspaceChatBridge.clearStagedReferences()
 
             // Mini-Phase 8.4: Auto-fold all previous messages and persist for active turn isolation
             chatMessages.indices.forEach { i ->
@@ -980,6 +1008,9 @@ fun ChatScreen(
                         },
                         onOpenArtifactInWorkspace = { artifact ->
                             onOpenInWorkspace(artifact.filePath)
+                        },
+                        onWidgetAnswer = { answer ->
+                            dispatchPrompt(answer)
                         }
                     )
                     MessageRole.APP_ACTION -> AppActionMessage(
@@ -1068,6 +1099,91 @@ fun ChatScreen(
                                     modifier = Modifier.size(16.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                            }
+                        }
+                    }
+                }
+
+                // Multimodal Context Basket (Mini-Phase 5 Deliverable 2)
+                if (stagedReferences.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+                        modifier = Modifier
+                            .padding(bottom = 8.dp)
+                            .fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.Layers,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        "Context Basket (${stagedReferences.size})",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                TextButton(
+                                    onClick = { WorkspaceChatBridge.clearStagedReferences() },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(24.dp)
+                                ) {
+                                    Text("Clear All", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+
+                            Spacer(Modifier.height(4.dp))
+
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(stagedReferences, key = { it.id }) { ref ->
+                                    InputChip(
+                                        selected = true,
+                                        onClick = { /* Selected indicator */ },
+                                        label = {
+                                            Text(
+                                                ref.label,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            val icon = when (ref) {
+                                                is StagedReference.CodeLines -> Icons.Default.Code
+                                                is StagedReference.ImageRegion -> Icons.Default.Image
+                                                is StagedReference.MediaTimestamp -> if (ref.isVideo) Icons.Default.Movie else Icons.Default.GraphicEq
+                                                is StagedReference.DocumentPage -> Icons.Default.Description
+                                                is StagedReference.PresentationSlide -> Icons.Default.Slideshow
+                                                is StagedReference.GenericArtifact -> Icons.Default.Attachment
+                                            }
+                                            Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        },
+                                        trailingIcon = {
+                                            IconButton(
+                                                onClick = { WorkspaceChatBridge.removeStagedReference(ref.id) },
+                                                modifier = Modifier.size(16.dp)
+                                            ) {
+                                                Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(12.dp))
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -1210,7 +1326,7 @@ fun ChatScreen(
                                 if (isGenerating) {
                                     currentJob?.cancel()
                                     isGenerating = false
-                                } else if (inputText.isNotBlank() || pendingAttachmentUri != null) {
+                                } else if (inputText.isNotBlank() || pendingAttachmentUri != null || stagedReferences.isNotEmpty()) {
                                     dispatchPrompt(inputText)
                                 }
                             },
@@ -1463,7 +1579,8 @@ fun AiMessage(
     aiViewModel: AiManagerViewModel,
     onToggleFold: () -> Unit,
     onOpenArtifactFullscreen: (InChatArtifactInfo) -> Unit = {},
-    onOpenArtifactInWorkspace: (InChatArtifactInfo) -> Unit = {}
+    onOpenArtifactInWorkspace: (InChatArtifactInfo) -> Unit = {},
+    onWidgetAnswer: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val expanded = !message.isFolded
@@ -1525,7 +1642,8 @@ fun AiMessage(
                     }
                 }
 
-                if (!message.thoughtContent.isNullOrBlank() || !message.planContent.isNullOrBlank()) {
+                val isThinkingVisible by com.example.engine.brain.BrainSettingsStore.showThinkingFlow.collectAsState()
+                if (isThinkingVisible && (!message.thoughtContent.isNullOrBlank() || !message.planContent.isNullOrBlank())) {
                     Spacer(modifier = Modifier.height(4.dp))
                     ThoughtBubble(
                         thoughtContent = message.thoughtContent,
@@ -1534,9 +1652,42 @@ fun AiMessage(
                     )
                 }
 
+                // Google AI Studio style collapsible action trail
+                ActionStepsPill(
+                    message = message,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+
+                // Interactive M3 Parameter Widgets & Clean Markdown Body (Mini-Phase 5 Deliverable 1)
+                val parsedWidgets = remember(message.text) {
+                    InteractiveWidgetParser.parseWidgets(message.text)
+                }
+                val cleanBodyText = remember(message.text) {
+                    InteractiveWidgetParser.stripWidgetMarkup(message.text)
+                }
+
                 Spacer(modifier = Modifier.height(8.dp))
-                SelectionContainer {
-                    Text(text = message.text, style = MaterialTheme.typography.bodyLarge)
+                if (cleanBodyText.isNotBlank()) {
+                    SelectionContainer {
+                        Text(text = cleanBodyText, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+
+                if (parsedWidgets.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        for (widgetSpec in parsedWidgets) {
+                            InteractiveWidgetCard(
+                                spec = widgetSpec,
+                                onAnswerSubmitted = { answer ->
+                                    onWidgetAnswer(answer)
+                                }
+                            )
+                        }
+                    }
                 }
 
                 // Inline Artifact Previews for AI message text

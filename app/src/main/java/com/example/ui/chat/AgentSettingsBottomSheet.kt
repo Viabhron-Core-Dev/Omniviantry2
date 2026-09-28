@@ -42,6 +42,20 @@ fun AgentSettingsBottomSheet(
     var useMmap by remember { mutableStateOf(true) }
     var useMlock by remember { mutableStateOf(false) }
     var unfoldOnScreen by remember { mutableStateOf(false) }
+    var showMemoryManagement by remember { mutableStateOf(false) }
+
+    if (showMemoryManagement) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showMemoryManagement = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize()) {
+                com.example.ui.brain.MemoryManagementScreen(
+                    onNavigateBack = { showMemoryManagement = false }
+                )
+            }
+        }
+    }
 
     val isLocalAi = currentModel.endsWith(".gguf", ignoreCase = true) || currentModel.startsWith("local_gguf/")
 
@@ -228,6 +242,17 @@ fun AgentSettingsBottomSheet(
                 valueRange = 256f..4096f,
                 steps = 14,
                 modifier = Modifier.padding(vertical = 4.dp)
+            )
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
+            // Mini-Phase 11.7: Brain & Cognitive Controls Card
+            com.example.ui.brain.BrainSettingsCard(
+                modelName = currentModel,
+                estimatedTokens = contextSize,
+                onOpenMemoryManagement = { showMemoryManagement = true }
             )
 
             Spacer(Modifier.height(16.dp))

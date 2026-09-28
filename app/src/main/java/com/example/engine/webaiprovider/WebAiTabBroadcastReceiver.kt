@@ -35,13 +35,22 @@ class WebAiTabBroadcastReceiver : BroadcastReceiver() {
                 WebAiCustomTabManager.refreshCustomTabsToolbar(context)
 
                 // Launch/switch URL in the Custom Tab with session mode flags
+                val targetPkg = if (targetTab?.sessionMode == WebAiSessionMode.CUSTOM_BROWSER && !targetTab.targetPackage.isNullOrBlank()) {
+                    targetTab.targetPackage
+                } else {
+                    WebAiCustomTabManager.resolveTargetBrowserPackage(context)
+                }
+
                 val navIntent = Intent(Intent.ACTION_VIEW, Uri.parse(tabUrl)).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    if (!targetPkg.isNullOrBlank()) {
+                        setPackage(targetPkg)
+                    }
                     if (targetTab?.sessionMode == WebAiSessionMode.EPHEMERAL) {
+                        putExtra("org.mozilla.firefox.PRIVATE_BROWSING", true)
+                        putExtra("private_browsing_mode", true)
                         putExtra("com.google.android.apps.chrome.EXTRA_OPEN_NEW_INCOGNITO_TAB", true)
                         putExtra("org.chromium.chrome.browser.customtabs.EXTRA_ENABLE_EPHEMERAL_BROWSING", true)
-                    } else if (targetTab?.sessionMode == WebAiSessionMode.CUSTOM_BROWSER && !targetTab.targetPackage.isNullOrBlank()) {
-                        setPackage(targetTab.targetPackage)
                     }
                 }
                 try {
@@ -73,13 +82,21 @@ class WebAiTabBroadcastReceiver : BroadcastReceiver() {
 
                     if (currentId == tabId) {
                         val nextTab = remainingTabs.first()
+                        val nextPkg = if (nextTab.sessionMode == WebAiSessionMode.CUSTOM_BROWSER && !nextTab.targetPackage.isNullOrBlank()) {
+                            nextTab.targetPackage
+                        } else {
+                            WebAiCustomTabManager.resolveTargetBrowserPackage(context)
+                        }
                         val navIntent = Intent(Intent.ACTION_VIEW, Uri.parse(nextTab.url)).apply {
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            if (!nextPkg.isNullOrBlank()) {
+                                setPackage(nextPkg)
+                            }
                             if (nextTab.sessionMode == WebAiSessionMode.EPHEMERAL) {
+                                putExtra("org.mozilla.firefox.PRIVATE_BROWSING", true)
+                                putExtra("private_browsing_mode", true)
                                 putExtra("com.google.android.apps.chrome.EXTRA_OPEN_NEW_INCOGNITO_TAB", true)
                                 putExtra("org.chromium.chrome.browser.customtabs.EXTRA_ENABLE_EPHEMERAL_BROWSING", true)
-                            } else if (nextTab.sessionMode == WebAiSessionMode.CUSTOM_BROWSER && !nextTab.targetPackage.isNullOrBlank()) {
-                                setPackage(nextTab.targetPackage)
                             }
                         }
                         try {

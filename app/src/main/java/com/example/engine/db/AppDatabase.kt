@@ -30,8 +30,9 @@ import com.example.engine.db.ProviderPrepopulator
     McpServerEntity::class,
     com.example.engine.skills.SkillEntity::class,
     com.example.engine.plugins.PluginEntity::class,
-    com.example.engine.omniroot.artifact.ArtifactProviderEntity::class
-], version = 21, exportSchema = false)
+    com.example.engine.omniroot.artifact.ArtifactProviderEntity::class,
+    MemoryEntity::class
+], version = 22, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun workspaceConfigDao(): WorkspaceConfigDao
@@ -51,6 +52,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun skillDao(): com.example.engine.skills.SkillDao
     abstract fun pluginDao(): com.example.engine.plugins.PluginDao
     abstract fun artifactProviderDao(): com.example.engine.omniroot.artifact.ArtifactProviderDao
+    abstract fun memoryDao(): MemoryDao
 
     companion object {
         val MIGRATION_5_6 = object : Migration(5, 6) {
@@ -247,6 +249,24 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `memories` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `key` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `category` TEXT NOT NULL,
+                        `relevanceScore` REAL NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `lastAccessedAt` INTEGER NOT NULL,
+                        `isPinned` INTEGER NOT NULL,
+                        `accessCount` INTEGER NOT NULL
+                    )
+                """.trimIndent())
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
         fun getDatabase(context: Context): AppDatabase {
@@ -261,7 +281,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
                     MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15,
                     MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20,
-                    MIGRATION_20_21
+                    MIGRATION_20_21, MIGRATION_21_22
                 )
                 .fallbackToDestructiveMigration()
                 .build()

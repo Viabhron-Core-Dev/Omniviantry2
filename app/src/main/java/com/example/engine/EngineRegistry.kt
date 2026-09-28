@@ -13,6 +13,7 @@ object EngineRegistry {
         ViewFileTool(),
         EditFileTool(),
         MultiEditFileTool(),
+        ApplyPatchTool(),
         CreateFileTool(),
         DeleteFileTool(),
         MoveFileTool(),

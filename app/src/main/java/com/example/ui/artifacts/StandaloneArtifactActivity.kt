@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -129,8 +130,12 @@ class StandaloneArtifactActivity : ComponentActivity() {
                                     WebView(ctx).apply {
                                         settings.javaScriptEnabled = true
                                         settings.domStorageEnabled = true
+                                        settings.databaseEnabled = true
                                         settings.allowFileAccess = true
                                         settings.allowContentAccess = true
+                                        settings.allowFileAccessFromFileURLs = true
+                                        settings.allowUniversalAccessFromFileURLs = true
+                                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                                         settings.mediaPlaybackRequiresUserGesture = false
 
                                         // Attach global LogKeeper web catcher
@@ -154,11 +159,13 @@ class StandaloneArtifactActivity : ComponentActivity() {
                                         webViewClient = object : WebViewClient() {
                                             override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                                                 super.onPageStarted(view, url, favicon)
+                                                view?.evaluateJavascript(com.example.utils.LogKeeperCatcher.getErrorCaptureScript(), null)
                                                 view?.evaluateJavascript(injectionScript, null)
                                             }
 
                                             override fun onPageFinished(view: WebView?, url: String?) {
                                                 super.onPageFinished(view, url)
+                                                view?.evaluateJavascript(com.example.utils.LogKeeperCatcher.getErrorCaptureScript(), null)
                                                 view?.evaluateJavascript(injectionScript, null)
                                                 LogKeeper.log("INFO", "StandaloneWeb", "Page finished: $url (injected $secretsCount secrets)")
                                             }

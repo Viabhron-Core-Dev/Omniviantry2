@@ -26,7 +26,8 @@ data class BackupStats(
     val settingsCount: Int,
     val permissionCount: Int,
     val artifactProviderCount: Int = 0,
-    val artifactCount: Int = 0
+    val artifactCount: Int = 0,
+    val memoryCount: Int = 0
 )
 
 data class RestoreStats(
@@ -36,7 +37,8 @@ data class RestoreStats(
     val settingsCount: Int,
     val permissionCount: Int,
     val artifactProviderCount: Int = 0,
-    val artifactCount: Int = 0
+    val artifactCount: Int = 0,
+    val memoryCount: Int = 0
 )
 
 /**
@@ -68,6 +70,7 @@ object BackupManager {
             val overrides = ToolPermissionManager.getAllOverrides()
             val artifactProviders = db.artifactProviderDao().getAll()
             val artifacts = db.artifactDao().getAllArtifacts()
+            val memories = db.memoryDao().getAllMemoriesSync()
 
             // 2. Build JSON payload
             val root = JSONObject()
@@ -209,6 +212,33 @@ object BackupManager {
             }
             root.put("artifacts", artArray)
 
+            // Thread Scoped Secrets (Part 2 Private Vaults)
+            val threadSecretsObj = JSONObject()
+            val allThreadSecrets = com.example.engine.settings.ThreadSecretsStore.getAllThreadSecrets(context)
+            allThreadSecrets.forEach { (wsId, secrets) ->
+                val secObj = JSONObject()
+                secrets.forEach { (k, v) -> secObj.put(k, v) }
+                threadSecretsObj.put(wsId, secObj)
+            }
+            root.put("thread_secrets", threadSecretsObj)
+
+            // Modular Memories (Phase 11.3)
+            val memArray = JSONArray()
+            memories.forEach { mem ->
+                val obj = JSONObject().apply {
+                    put("key", mem.key)
+                    put("content", mem.content)
+                    put("category", mem.category)
+                    put("relevanceScore", mem.relevanceScore.toDouble())
+                    put("createdAt", mem.createdAt)
+                    put("lastAccessedAt", mem.lastAccessedAt)
+                    put("isPinned", mem.isPinned)
+                    put("accessCount", mem.accessCount)
+                }
+                memArray.put(obj)
+            }
+            root.put("memories", memArray)
+
             // 3. Encrypt payload
             val plaintextBytes = root.toString().toByteArray(StandardCharsets.UTF_8)
             val random = SecureRandom()
@@ -231,7 +261,7 @@ object BackupManager {
                 out.flush()
             }
 
-            LogKeeper.log("BackupManager", "ExportSuccess", "Backup exported: ${messages.size} msgs, ${keys.size} keys, ${configs.size} configs, ${artifactProviders.size} artifact providers, ${artifacts.size} artifacts")
+            LogKeeper.log("BackupManager", "ExportSuccess", "Backup exported: ${messages.size} msgs, ${keys.size} keys, ${configs.size} configs, ${artifactProviders.size} artifact providers, ${artifacts.size} artifacts, ${memories.size} memories")
             Result.success(
                 BackupStats(
                     messageCount = messages.size,
@@ -240,7 +270,8 @@ object BackupManager {
                     settingsCount = settings.size,
                     permissionCount = overrides.size,
                     artifactProviderCount = artifactProviders.size,
-                    artifactCount = artifacts.size
+                    artifactCount = artifacts.size,
+                    memoryCount = memories.size
                 )
             )
         } catch (e: Exception) {
@@ -487,7 +518,51 @@ object BackupManager {
                 db.artifactDao().insertArtifacts(restoredArtifacts)
             }
 
-            LogKeeper.log("BackupManager", "RestoreSuccess", "Restored: ${restoredMessages.size} msgs, ${restoredKeys.size} keys, ${restoredConfigs.size} configs, ${restoredArtifactProviders.size} artifact providers, ${restoredArtifacts.size} artifacts")
+            // 8. Restore Thread Scoped Secrets (Part 2 Private Vaults)
+            val threadSecretsObj = root.optJSONObject("thread_secrets")
+            var restoredSecretsCount = 0
+            if (threadSecretsObj != null) {
+                val wsIter = threadSecretsObj.keys()
+                while (wsIter.hasNext()) {
+                    val wsId = wsIter.next()
+                    val secObj = threadSecretsObj.getJSONObject(wsId)
+                    val secMap = mutableMapOf<String, String>()
+                    val secIter = secObj.keys()
+                    while (secIter.hasNext()) {
+                        val key = secIter.next()
+                        secMap[key] = secObj.getString(key)
+                    }
+                    if (secMap.isNotEmpty()) {
+                        com.example.engine.settings.ThreadSecretsStore.saveAllSecrets(context, wsId, secMap)
+                        restoredSecretsCount += secMap.size
+                    }
+                }
+            }
+
+            // 9. Restore Modular Memories (Phase 11.3)
+            val memArray = root.optJSONArray("memories") ?: JSONArray()
+            val restoredMemories = mutableListOf<com.example.engine.db.MemoryEntity>()
+            for (i in 0 until memArray.length()) {
+                val obj = memArray.getJSONObject(i)
+                restoredMemories.add(
+                    com.example.engine.db.MemoryEntity(
+                        id = 0L,
+                        key = obj.optString("key", ""),
+                        content = obj.optString("content", ""),
+                        category = obj.optString("category", com.example.engine.db.MemoryCategory.USER_PREFERENCE),
+                        relevanceScore = obj.optDouble("relevanceScore", 1.0).toFloat(),
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                        lastAccessedAt = obj.optLong("lastAccessedAt", System.currentTimeMillis()),
+                        isPinned = obj.optBoolean("isPinned", false),
+                        accessCount = obj.optInt("accessCount", 0)
+                    )
+                )
+            }
+            if (restoredMemories.isNotEmpty()) {
+                db.memoryDao().insertMemories(restoredMemories)
+            }
+
+            LogKeeper.log("BackupManager", "RestoreSuccess", "Restored: ${restoredMessages.size} msgs, ${restoredKeys.size} keys, ${restoredConfigs.size} configs, ${restoredArtifactProviders.size} artifact providers, ${restoredArtifacts.size} artifacts, ${restoredMemories.size} memories, $restoredSecretsCount thread secrets")
             Result.success(
                 RestoreStats(
                     messageCount = restoredMessages.size,
@@ -496,7 +571,8 @@ object BackupManager {
                     settingsCount = restoredSettings.size,
                     permissionCount = permMap.size,
                     artifactProviderCount = restoredArtifactProviders.size,
-                    artifactCount = restoredArtifacts.size
+                    artifactCount = restoredArtifacts.size,
+                    memoryCount = restoredMemories.size
                 )
             )
         } catch (e: Exception) {

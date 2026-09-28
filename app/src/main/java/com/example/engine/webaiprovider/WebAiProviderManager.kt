@@ -14,6 +14,29 @@ object WebAiProviderManager {
     private const val KEY_SERVICES = "configured_services_json"
     private const val KEY_LAST_ACTIVE_URL = "last_active_url"
     private const val KEY_LAST_ACTIVE_SERVICE_NAME = "last_active_service_name"
+    private const val KEY_BROWSER_ENGINE = "preferred_browser_engine"
+
+    const val ENGINE_FIREFOX = "FIREFOX"
+    const val ENGINE_CHROME = "CHROME"
+    const val ENGINE_SYSTEM = "SYSTEM"
+
+    val FIREFOX_PACKAGES = listOf(
+        "org.mozilla.firefox",
+        "org.mozilla.fenix",
+        "org.mozilla.firefox_beta",
+        "org.mozilla.focus",
+        "org.mozilla.klar"
+    )
+
+    val CHROME_PACKAGES = listOf(
+        "com.android.chrome",
+        "com.chrome.beta",
+        "com.chrome.dev",
+        "com.chrome.canary"
+    )
+
+    private val _browserEngine = MutableStateFlow(ENGINE_FIREFOX)
+    val browserEngine: StateFlow<String> = _browserEngine.asStateFlow()
 
     private val _services = MutableStateFlow<List<WebAiService>>(emptyList())
     val services: StateFlow<List<WebAiService>> = _services.asStateFlow()
@@ -26,6 +49,32 @@ object WebAiProviderManager {
 
     private val _lastActiveServiceName = MutableStateFlow<String?>(null)
     val lastActiveServiceName: StateFlow<String?> = _lastActiveServiceName.asStateFlow()
+
+    fun setPreferredBrowserEngine(engine: String) {
+        _browserEngine.value = engine
+        prefs?.edit()?.putString(KEY_BROWSER_ENGINE, engine)?.apply()
+    }
+
+    fun getPreferredBrowserEngine(): String = _browserEngine.value
+
+    fun getInstalledFirefoxPackage(context: Context): String? {
+        val pm = context.packageManager
+        for (pkg in FIREFOX_PACKAGES) {
+            val serviceIntent = android.content.Intent("android.support.customtabs.action.CustomTabsService").setPackage(pkg)
+            if (pm.queryIntentServices(serviceIntent, 0).isNotEmpty()) {
+                return pkg
+            }
+        }
+        for (pkg in FIREFOX_PACKAGES) {
+            try {
+                pm.getPackageInfo(pkg, 0)
+                return pkg
+            } catch (_: Exception) {}
+        }
+        return null
+    }
+
+    fun isFirefoxInstalled(context: Context): Boolean = getInstalledFirefoxPackage(context) != null
 
     fun updateOpenTabCount(count: Int) {
         _openTabCount.value = count.coerceAtLeast(0)
@@ -176,6 +225,7 @@ object WebAiProviderManager {
         if (prefs != null) return
         val sharedPrefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs = sharedPrefs
+        _browserEngine.value = sharedPrefs.getString(KEY_BROWSER_ENGINE, ENGINE_FIREFOX) ?: ENGINE_FIREFOX
         _lastActiveUrl.value = sharedPrefs.getString(KEY_LAST_ACTIVE_URL, null)
         _lastActiveServiceName.value = sharedPrefs.getString(KEY_LAST_ACTIVE_SERVICE_NAME, null)
         loadServices()

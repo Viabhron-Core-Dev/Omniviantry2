@@ -15,6 +15,25 @@ import android.webkit.WebViewClient
  */
 object LogKeeperCatcher {
 
+    fun getErrorCaptureScript(): String = """
+        (function() {
+            if (window.__LOGKEEPER_CATCHER_ATTACHED__) return;
+            window.__LOGKEEPER_CATCHER_ATTACHED__ = true;
+            window.addEventListener('error', function(event) {
+                var msg = event.message || 'Unknown script error';
+                var src = event.filename || 'inline';
+                var line = event.lineno || 0;
+                var col = event.colno || 0;
+                console.error('[UNCAUGHT] ' + msg + ' (' + src + ':' + line + ':' + col + ')');
+            });
+            window.addEventListener('unhandledrejection', function(event) {
+                var reason = event.reason;
+                var desc = (reason && (reason.stack || reason.message)) ? (reason.stack || reason.message) : String(reason);
+                console.error('[UNHANDLED_PROMISE] ' + desc);
+            });
+        })();
+    """.trimIndent()
+
     fun attachToWebView(
         webView: WebView,
         tag: String = "PwaApp",

@@ -1,5 +1,7 @@
 package com.example.engine.tools
 
+import com.example.engine.brain.PatchApplier
+import com.example.engine.brain.SurgicalEditor
 import com.example.engine.fs.LocalFileManager
 import com.example.utils.LogKeeper
 import kotlinx.coroutines.Dispatchers
@@ -170,65 +172,29 @@ class EditFileTool : Tool {
     override suspend fun execute(args: Map<String, Any>): String = withContext(Dispatchers.IO) {
         val path = args["TargetFile"] as? String
             ?: args["path"] as? String
-            ?: return@withContext "Error: 'TargetFile' parameter is required."
+            ?: args["file_path"] as? String
+            ?: return@withContext "Error: 'TargetFile' or 'path' parameter is required."
 
         val targetContent = args["TargetContent"] as? String
-            ?: return@withContext "Error: 'TargetContent' parameter is required."
+            ?: args["target_text"] as? String
+            ?: args["target"] as? String
+            ?: return@withContext "Error: 'TargetContent' or 'target_text' parameter is required."
 
         val replacementContent = args["ReplacementContent"] as? String
-            ?: return@withContext "Error: 'ReplacementContent' parameter is required."
+            ?: args["replacement_text"] as? String
+            ?: args["replacement"] as? String
+            ?: return@withContext "Error: 'ReplacementContent' or 'replacement_text' parameter is required."
 
-        val targetFileRes = WorkspacePathResolver.resolve(path)
-        if (targetFileRes.isFailure) {
-            return@withContext "Error: ${targetFileRes.exceptionOrNull()?.message}"
-        }
-        val file = targetFileRes.getOrThrow()
-
-        if (!file.exists()) {
-            return@withContext "Error: File '$path' does not exist."
-        }
-        if (file.isDirectory) {
-            return@withContext "Error: '$path' is a directory, not a file."
-        }
-
-        try {
-            val originalText = file.readText()
-            val occurrences = countOccurrences(originalText, targetContent)
-
-            if (occurrences == 0) {
-                return@withContext "Error: Target content not found in file '${WorkspacePathResolver.getRelativePath(file)}'. Please use 'view_file' to check the current file contents and whitespace."
+        when (val result = SurgicalEditor.applyEdit(path, targetContent, replacementContent)) {
+            is SurgicalEditor.SurgicalEditResult.Success -> {
+                LogKeeper.log("EditFileTool", "Success", "Edited ${result.relativePath}")
+                "Successfully edited file `${result.relativePath}` (${result.chunksApplied} occurrence replaced)."
             }
-            if (occurrences > 1) {
-                return@withContext "Error: Target content matched $occurrences occurrences in file '${WorkspacePathResolver.getRelativePath(file)}'. It must match exactly once. Please include more surrounding lines to create a unique match."
-            }
-
-            val newText = originalText.replaceFirst(targetContent, replacementContent)
-            file.writeText(newText)
-            LocalFileManager.refreshFileTree()
-
-            val relPath = WorkspacePathResolver.getRelativePath(file)
-            LogKeeper.log("EditFileTool", "Success", "Edited $relPath")
-            "Successfully edited file `$relPath` (1 occurrence replaced)."
-        } catch (e: Exception) {
-            LogKeeper.log("EditFileTool", "Error", "Error editing $path: ${e.message}")
-            "Error editing file '$path': ${e.message}"
-        }
-    }
-
-    private fun countOccurrences(text: String, target: String): Int {
-        if (target.isEmpty()) return 0
-        var count = 0
-        var index = 0
-        while (true) {
-            index = text.indexOf(target, index)
-            if (index != -1) {
-                count++
-                index += target.length
-            } else {
-                break
+            is SurgicalEditor.SurgicalEditResult.Failure -> {
+                LogKeeper.log("EditFileTool", "Error", "Error editing $path: ${result.reason}")
+                "Error: ${result.reason}"
             }
         }
-        return count
     }
 }
 
@@ -259,55 +225,27 @@ class MultiEditFileTool : Tool {
     override suspend fun execute(args: Map<String, Any>): String = withContext(Dispatchers.IO) {
         val path = args["TargetFile"] as? String
             ?: args["path"] as? String
-            ?: return@withContext "Error: 'TargetFile' parameter is required."
+            ?: args["file_path"] as? String
+            ?: return@withContext "Error: 'TargetFile' or 'path' parameter is required."
 
         val rawChunks = args["ReplacementChunks"]
+            ?: args["chunks"]
         val chunks = parseReplacementChunks(rawChunks)
 
         if (chunks.isEmpty()) {
             return@withContext "Error: 'ReplacementChunks' must contain at least one valid chunk."
         }
 
-        val targetFileRes = WorkspacePathResolver.resolve(path)
-        if (targetFileRes.isFailure) {
-            return@withContext "Error: ${targetFileRes.exceptionOrNull()?.message}"
-        }
-        val file = targetFileRes.getOrThrow()
-
-        if (!file.exists()) {
-            return@withContext "Error: File '$path' does not exist."
-        }
-
-        try {
-            var currentText = file.readText()
-            val relPath = WorkspacePathResolver.getRelativePath(file)
-
-            // Step 1: Pre-validation of all chunks
-            for ((index, chunk) in chunks.withIndex()) {
-                val target = chunk.first
-                if (target.isEmpty()) {
-                    return@withContext "Error in Chunk #${index + 1}: TargetContent cannot be empty."
-                }
-                val count = currentText.split(target).size - 1
-                if (count == 0) {
-                    return@withContext "Error in Chunk #${index + 1}: TargetContent not found in `$relPath`."
-                }
-                if (count > 1) {
-                    return@withContext "Error in Chunk #${index + 1}: TargetContent matched $count occurrences in `$relPath`. Must be unique."
-                }
-                // Simulate replacement to check cascading chunks
-                currentText = currentText.replaceFirst(target, chunk.second)
+        val editChunks = chunks.map { SurgicalEditor.EditChunk(it.first, it.second) }
+        when (val result = SurgicalEditor.applyMultiEdit(path, editChunks)) {
+            is SurgicalEditor.SurgicalEditResult.Success -> {
+                LogKeeper.log("MultiEditFileTool", "Success", "Applied ${result.chunksApplied} chunks to ${result.relativePath}")
+                "Successfully applied ${result.chunksApplied} replacement chunk(s) to `${result.relativePath}`."
             }
-
-            // Step 2: Write fully verified changes
-            file.writeText(currentText)
-            LocalFileManager.refreshFileTree()
-
-            LogKeeper.log("MultiEditFileTool", "Success", "Applied ${chunks.size} chunks to $relPath")
-            "Successfully applied ${chunks.size} replacement chunks to `$relPath`."
-        } catch (e: Exception) {
-            LogKeeper.log("MultiEditFileTool", "Error", "Error in multi_edit_file: ${e.message}")
-            "Error executing multi_edit_file: ${e.message}"
+            is SurgicalEditor.SurgicalEditResult.Failure -> {
+                LogKeeper.log("MultiEditFileTool", "Error", "Error in multi_edit_file: ${result.reason}")
+                "Error: ${result.reason}"
+            }
         }
     }
 
@@ -317,14 +255,24 @@ class MultiEditFileTool : Tool {
             is List<*> -> {
                 for (item in raw) {
                     if (item is Map<*, *>) {
-                        val target = item["TargetContent"]?.toString() ?: ""
-                        val replacement = item["ReplacementContent"]?.toString() ?: ""
+                        val target = item["TargetContent"]?.toString()
+                            ?: item["target_text"]?.toString()
+                            ?: item["target"]?.toString()
+                            ?: ""
+                        val replacement = item["ReplacementContent"]?.toString()
+                            ?: item["replacement_text"]?.toString()
+                            ?: item["replacement"]?.toString()
+                            ?: ""
                         if (target.isNotEmpty()) {
                             result.add(target to replacement)
                         }
                     } else if (item is JSONObject) {
-                        val target = item.optString("TargetContent", "")
-                        val replacement = item.optString("ReplacementContent", "")
+                        val target = if (item.has("TargetContent")) item.optString("TargetContent")
+                            else if (item.has("target_text")) item.optString("target_text")
+                            else item.optString("target", "")
+                        val replacement = if (item.has("ReplacementContent")) item.optString("ReplacementContent")
+                            else if (item.has("replacement_text")) item.optString("replacement_text")
+                            else item.optString("replacement", "")
                         if (target.isNotEmpty()) {
                             result.add(target to replacement)
                         }
@@ -335,8 +283,12 @@ class MultiEditFileTool : Tool {
                 for (i in 0 until raw.length()) {
                     val obj = raw.optJSONObject(i)
                     if (obj != null) {
-                        val target = obj.optString("TargetContent", "")
-                        val replacement = obj.optString("ReplacementContent", "")
+                        val target = if (obj.has("TargetContent")) obj.optString("TargetContent")
+                            else if (obj.has("target_text")) obj.optString("target_text")
+                            else obj.optString("target", "")
+                        val replacement = if (obj.has("ReplacementContent")) obj.optString("ReplacementContent")
+                            else if (obj.has("replacement_text")) obj.optString("replacement_text")
+                            else obj.optString("replacement", "")
                         if (target.isNotEmpty()) {
                             result.add(target to replacement)
                         }
@@ -345,6 +297,45 @@ class MultiEditFileTool : Tool {
             }
         }
         return result
+    }
+}
+
+/**
+ * 3b. apply_patch: Applies standard unified diff format patches with fuzzy line offset matching.
+ */
+class ApplyPatchTool : Tool {
+    override val name: String = "apply_patch"
+    override val description: String = "Apply a unified diff patch to a file with fuzzy line offset matching and atomic rollback."
+    override val parametersSchema: Map<String, Any> = mapOf(
+        "diff" to mapOf(
+            "type" to "string",
+            "description" to "The unified diff text containing @@ -x,y +a,b @@ hunks.",
+            "required" to true
+        ),
+        "TargetFile" to mapOf(
+            "type" to "string",
+            "description" to "Optional target file path to override diff header."
+        )
+    )
+
+    override suspend fun execute(args: Map<String, Any>): String = withContext(Dispatchers.IO) {
+        val diff = args["diff"] as? String
+            ?: args["patch"] as? String
+            ?: return@withContext "Error: 'diff' or 'patch' parameter is required."
+        val path = args["TargetFile"] as? String
+            ?: args["path"] as? String
+            ?: args["file_path"] as? String
+
+        when (val result = PatchApplier.applyPatch(diff, path)) {
+            is PatchApplier.PatchResult.Success -> {
+                LogKeeper.log("ApplyPatchTool", "Success", "Applied patch to ${result.relativePath}")
+                "Successfully applied ${result.hunksApplied} hunk(s) to `${result.relativePath}`."
+            }
+            is PatchApplier.PatchResult.Failure -> {
+                LogKeeper.log("ApplyPatchTool", "Error", "Patch error: ${result.reason}")
+                "Error: ${result.reason}"
+            }
+        }
     }
 }
 

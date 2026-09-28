@@ -30,7 +30,8 @@ import java.util.UUID
 @Composable
 fun FileExplorer(
     onFileClick: (FileNode) -> Unit,
-    onCloseClick: () -> Unit = {},
+    onFileOpenWith: (FileNode, ViewerType) -> Unit = { node, _ -> onFileClick(node) },
+    onCloseClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val fileTree by LocalFileManager.fileTreeState.collectAsState()
@@ -44,18 +45,34 @@ fun FileExplorer(
     val tabs = listOf("Files", "Issues", "PRs")
     Column(modifier = modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onCloseClick) {
-                Icon(Icons.Default.Close, contentDescription = "Close Drawer")
+            if (onCloseClick != null) {
+                IconButton(onClick = onCloseClick) {
+                    Icon(Icons.Default.Close, contentDescription = "Close")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+            } else {
+                Icon(
+                    Icons.Default.FolderOpen,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
             }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = workspaceName.value,
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f)
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = workspaceName.value,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = "Workspace Explorer",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
         }
         
         OutlinedTextField(
@@ -105,7 +122,8 @@ fun FileExplorer(
                         FileTreeNodeView(
                             node = rootNode,
                             level = 0,
-                            onFileClick = onFileClick
+                            onFileClick = onFileClick,
+                            onFileOpenWith = onFileOpenWith
                         )
                     }
                 }
@@ -229,11 +247,13 @@ fun SearchResultItem(
 fun FileTreeNodeView(
     node: FileNode,
     level: Int,
-    onFileClick: (FileNode) -> Unit
+    onFileClick: (FileNode) -> Unit,
+    onFileOpenWith: (FileNode, ViewerType) -> Unit = { n, _ -> onFileClick(n) }
 ) {
     var isExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var showContextMenu by remember { mutableStateOf(false) }
+    var showOpenWithMenu by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showCopyDialog by remember { mutableStateOf(false) }
     var showNewFileDialog by remember { mutableStateOf(false) }
@@ -320,6 +340,16 @@ fun FileTreeNodeView(
                 expanded = showContextMenu,
                 onDismissRequest = { showContextMenu = false }
             ) {
+                if (!node.isDirectory) {
+                    DropdownMenuItem(
+                        text = { Text("Open With...") },
+                        leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                        onClick = { 
+                            showContextMenu = false
+                            showOpenWithMenu = true 
+                        }
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text("Rename") },
                     onClick = { showContextMenu = false; showRenameDialog = true }
@@ -454,12 +484,60 @@ fun FileTreeNodeView(
             )
         }
 
+        if (showOpenWithMenu) {
+            AlertDialog(
+                onDismissRequest = { showOpenWithMenu = false },
+                title = { Text("Open '${node.name}' With...") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ViewerType.values().forEach { viewer ->
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        showOpenWithMenu = false
+                                        onFileOpenWith(node, viewer)
+                                    }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        when (viewer) {
+                                            ViewerType.CODE -> Icons.Default.Code
+                                            ViewerType.IMAGE -> Icons.Default.Image
+                                            ViewerType.VIDEO -> Icons.Default.Movie
+                                            ViewerType.AUDIO -> Icons.Default.Audiotrack
+                                            ViewerType.PPT -> Icons.Default.Slideshow
+                                            ViewerType.DOCUMENT -> Icons.Default.PictureAsPdf
+                                            ViewerType.WEBVIEW_STAGE -> Icons.Default.ViewInAr
+                                            ViewerType.AUTO -> Icons.Default.AutoAwesome
+                                        },
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(viewer.label, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showOpenWithMenu = false }) { Text("Cancel") }
+                }
+            )
+        }
+
         if (isExpanded && node.isDirectory) {
             node.children.forEach { child ->
                 FileTreeNodeView(
                     node = child,
                     level = level + 1,
-                    onFileClick = onFileClick
+                    onFileClick = onFileClick,
+                    onFileOpenWith = onFileOpenWith
                 )
             }
         }

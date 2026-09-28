@@ -102,7 +102,7 @@ fun OmniRootApp() {
                 currentTab = AppTab.CHAT
                 navController.navigate("main") { popUpTo("main") { inclusive = true } }
             } else if (uriStr.contains("code/workspace") || action == "open_code") {
-                currentTab = AppTab.CODE
+                currentTab = AppTab.WORKSPACE
                 navController.navigate("main") { popUpTo("main") { inclusive = true } }
             }
             // Clear once handled
@@ -205,12 +205,13 @@ fun OmniRootApp() {
                                         prefs.edit().putString("active_chat_id", promotedId).apply()
                                     },
                                     onOpenInWorkspace = { filePath ->
-                                        currentTab = AppTab.CODE
+                                        currentTab = AppTab.WORKSPACE
                                     }
                                 )
                             }
-                            AppTab.CODE -> CodeScreen(
-                                onMenuClick = { scope.launch { drawerState.open() } }
+                            AppTab.WORKSPACE -> CodeScreen(
+                                onMenuClick = { scope.launch { drawerState.open() } },
+                                onNavigateToChat = { currentTab = AppTab.CHAT }
                             )
                         }
                         

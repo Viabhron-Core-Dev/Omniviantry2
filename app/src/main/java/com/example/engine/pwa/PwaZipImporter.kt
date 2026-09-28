@@ -76,9 +76,9 @@ object PwaZipImporter {
                 return@withContext Result.failure(err)
             }
 
-            // Detect app root directory: handles cases where files are nested in dist/, build/, or project-name/
+            // Detect app root directory: handles flat zips, nested dist/build/public folders, or repo subtrees
             val appRootDir = resolveAppRootDirectory(stagingDir)
-            LogKeeper.log("INFO", "PwaZipImporter", "Resolved web app root at: ${appRootDir.name}")
+            LogKeeper.log("INFO", "PwaZipImporter", "Resolved web app root at: ${appRootDir.absolutePath}")
 
             // Find manifest or synthesize one
             val manifestCandidates = listOf(
@@ -121,15 +121,24 @@ object PwaZipImporter {
                 }
             }
 
-            // Find index.html or fallback
-            val indexFile = File(finalRepoDir, manifestData.startUrl.removePrefix("/").removePrefix("./")).let {
-                if (it.exists() && it.isFile) it else File(finalRepoDir, "index.html")
-            }
+            // Find primary entry HTML file or synthesize
+            val indexCandidates = listOf("index.html", "index.htm", "Index.html", "INDEX.HTML", "main.html", "app.html", "home.html")
+            val indexFile = indexCandidates.map { File(finalRepoDir, it) }.firstOrNull { it.exists() && it.isFile }
+                ?: finalRepoDir.walkTopDown().filter { it.isFile && it.extension.equals("html", ignoreCase = true) && !it.name.startsWith("__MACOSX") }.firstOrNull()
 
-            val htmlContent = if (indexFile.exists()) {
+            val htmlContent = if (indexFile != null && indexFile.exists()) {
+                // Ensure a standard index.html exists in finalRepoDir
+                val standardIndex = File(finalRepoDir, "index.html")
+                if (!standardIndex.exists()) {
+                    try {
+                        indexFile.copyTo(standardIndex, overwrite = true)
+                    } catch (_: Exception) {}
+                }
                 indexFile.readText()
             } else {
-                "<!DOCTYPE html><html><head><title>${manifestData.name}</title></head><body><h2>${manifestData.name}</h2><p>PWA loaded from distribution archive.</p></body></html>"
+                val fallbackHtml = "<!DOCTYPE html><html><head><title>${manifestData.name}</title></head><body><h2>${manifestData.name}</h2><p>PWA loaded from distribution archive.</p></body></html>"
+                File(finalRepoDir, "index.html").writeText(fallbackHtml)
+                fallbackHtml
             }
 
             val settingsJson = JSONObject().apply {
@@ -172,46 +181,80 @@ object PwaZipImporter {
 
     /**
      * Resolves the actual root directory inside the extracted zip:
-     * If root has a single subdirectory containing index.html (like dist/ or build/), use that.
+     * Recursively inspects the staging directory up to 5 levels deep to find the best
+     * web application root folder containing an index.html or primary web assets.
      */
     private fun resolveAppRootDirectory(extractDir: File): File {
-        val rootIndex = File(extractDir, "index.html")
-        if (rootIndex.exists() && rootIndex.isFile) {
-            return extractDir
-        }
+        val candidateDirs = mutableListOf<File>()
 
-        // Check common subdirectories: dist, build, public, www, out
-        val subDirs = listOf("dist", "build", "public", "www", "out")
-        for (sub in subDirs) {
-            val candidate = File(extractDir, sub)
-            if (candidate.exists() && candidate.isDirectory && File(candidate, "index.html").exists()) {
-                return candidate
+        fun searchDir(current: File, depth: Int) {
+            if (depth > 5) return
+            val name = current.name
+            if (name.startsWith("__MACOSX") || name == ".git" || name == ".github" || name == "node_modules") return
+
+            val files = current.listFiles() ?: return
+            val hasHtml = files.any { f ->
+                f.isFile && (f.name.equals("index.html", ignoreCase = true) || f.name.equals("index.htm", ignoreCase = true))
+            }
+            if (hasHtml) {
+                candidateDirs.add(current)
+            }
+
+            for (f in files) {
+                if (f.isDirectory) {
+                    searchDir(f, depth + 1)
+                }
             }
         }
 
-        // Check if there is only 1 top-level folder
-        val children = extractDir.listFiles()?.filter { it.isDirectory } ?: emptyList()
-        if (children.size == 1) {
-            val singleSub = children.first()
-            if (File(singleSub, "index.html").exists()) {
-                return singleSub
+        searchDir(extractDir, 0)
+
+        if (candidateDirs.isNotEmpty()) {
+            val bestCandidate = candidateDirs.maxByOrNull { dir ->
+                var score = 0
+                val dirName = dir.name.lowercase()
+                if (dirName == "dist" || dirName == "build" || dirName == "out" || dirName == "public" || dirName == "www") score += 50
+                if (File(dir, "manifest.json").exists() || File(dir, "app.webmanifest").exists() || File(dir, "site.webmanifest").exists()) score += 40
+                if (File(dir, "assets").exists() || File(dir, "js").exists() || File(dir, "css").exists() || File(dir, "static").exists()) score += 30
+                if (File(dir, "favicon.ico").exists() || File(dir, "icon.png").exists() || File(dir, "logo.png").exists()) score += 20
+                if (dir == extractDir) score += 10
+                score
             }
+            if (bestCandidate != null) {
+                LogKeeper.log("INFO", "PwaZipImporter", "Resolved best app root: ${bestCandidate.absolutePath} (out of ${candidateDirs.size} candidates)")
+                return bestCandidate
+            }
+        }
+
+        // If no index.html found at all, search for ANY .html file
+        val allHtmlFiles = extractDir.walkTopDown()
+            .filter { it.isFile && it.extension.equals("html", ignoreCase = true) && !it.absolutePath.contains("__MACOSX") }
+            .toList()
+        if (allHtmlFiles.isNotEmpty()) {
+            val primaryHtml = allHtmlFiles.first()
+            val parent = primaryHtml.parentFile ?: extractDir
+            LogKeeper.log("INFO", "PwaZipImporter", "No index.html found, using directory with '${primaryHtml.name}': ${parent.absolutePath}")
+            return parent
         }
 
         return extractDir
     }
 
     private fun deriveTitle(filename: String, appRootDir: File): String {
-        // 1. Try reading <title> from index.html
-        val indexHtml = File(appRootDir, "index.html")
-        val parsedTitle = PwaManifestParser.extractTitleFromHtml(indexHtml)
-        if (!parsedTitle.isNullOrBlank()) {
-            return parsedTitle
+        // 1. Try reading <title> from index.html or any html
+        val indexHtml = listOf(File(appRootDir, "index.html"), File(appRootDir, "index.htm")).firstOrNull { it.exists() }
+            ?: appRootDir.listFiles()?.firstOrNull { it.isFile && it.extension.equals("html", ignoreCase = true) }
+
+        if (indexHtml != null) {
+            val parsedTitle = PwaManifestParser.extractTitleFromHtml(indexHtml)
+            if (!parsedTitle.isNullOrBlank()) {
+                return parsedTitle
+            }
         }
 
         // 2. Clean filename
         val base = filename.removeSuffix(".zip").removeSuffix(".ZIP")
-        if (base.equals("dist", ignoreCase = true) || base.equals("build", ignoreCase = true)) {
+        if (base.equals("dist", ignoreCase = true) || base.equals("build", ignoreCase = true) || base.equals("out", ignoreCase = true)) {
             return "Imported PWA"
         }
 
@@ -224,7 +267,9 @@ object PwaZipImporter {
     private fun copyDirectory(source: File, target: File) {
         if (!target.exists()) target.mkdirs()
         source.listFiles()?.forEach { file ->
-            val dest = File(target, file.name)
+            val name = file.name
+            if (name.startsWith("__MACOSX") || name == ".DS_Store" || name == "Thumbs.db" || name == ".git") return@forEach
+            val dest = File(target, name)
             if (file.isDirectory) {
                 copyDirectory(file, dest)
             } else {

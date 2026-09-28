@@ -63,14 +63,56 @@ object WebAiCustomTabManager {
     }
 
     /**
+     * Resolves the target browser package honoring user preferences, defaulting to Firefox.
+     */
+    fun resolveTargetBrowserPackage(context: Context): String? {
+        val enginePref = WebAiProviderManager.getPreferredBrowserEngine()
+        val pm = context.packageManager
+
+        if (enginePref == WebAiProviderManager.ENGINE_FIREFOX) {
+            // Prioritize Firefox packages supporting Custom Tabs
+            for (pkg in WebAiProviderManager.FIREFOX_PACKAGES) {
+                val serviceIntent = Intent("android.support.customtabs.action.CustomTabsService").setPackage(pkg)
+                if (pm.queryIntentServices(serviceIntent, 0).isNotEmpty()) {
+                    LogKeeper.log("INFO", TAG, "Resolved Firefox Custom Tabs engine: $pkg")
+                    return pkg
+                }
+            }
+            // Check if any Firefox package is installed at all for web viewing
+            for (pkg in WebAiProviderManager.FIREFOX_PACKAGES) {
+                try {
+                    pm.getPackageInfo(pkg, 0)
+                    LogKeeper.log("INFO", TAG, "Found Firefox package: $pkg")
+                    return pkg
+                } catch (_: Exception) {}
+            }
+            // Fallback to system default if Firefox not installed
+            val defaultPkg = CustomTabsClient.getPackageName(context, null)
+            LogKeeper.log("INFO", TAG, "Firefox preferred but not detected on device; fallback to: $defaultPkg")
+            return defaultPkg
+        } else if (enginePref == WebAiProviderManager.ENGINE_CHROME) {
+            for (pkg in WebAiProviderManager.CHROME_PACKAGES) {
+                val serviceIntent = Intent("android.support.customtabs.action.CustomTabsService").setPackage(pkg)
+                if (pm.queryIntentServices(serviceIntent, 0).isNotEmpty()) {
+                    return pkg
+                }
+            }
+            return CustomTabsClient.getPackageName(context, null)
+        } else {
+            return CustomTabsClient.getPackageName(context, null)
+        }
+    }
+
+    /**
      * Initializes and binds the CustomTabsService for immediate fast-launch.
      */
     fun bindCustomTabsService(context: Context) {
         if (isConnectionBound) return
         try {
-            val packageName = CustomTabsClient.getPackageName(context, null)
+            val packageName = resolveTargetBrowserPackage(context)
             if (packageName != null) {
                 CustomTabsClient.bindCustomTabsService(context, packageName, connection)
+                LogKeeper.log("INFO", TAG, "CustomTabsService bound to package: $packageName")
             } else {
                 LogKeeper.log("WARNING", TAG, "No Custom Tabs compatible browser package found.")
             }
@@ -143,13 +185,28 @@ object WebAiCustomTabManager {
 
         builder.setSecondaryToolbarViews(remoteViews, clickableIds, pendingIntent)
 
-        // Ephemeral / Incognito check for first tab
         val intent = builder.build()
+
+        // Resolve browser package: custom profile override, or default preferred browser (Firefox)
+        val targetBrowserPkg = resolveTargetBrowserPackage(context)
+        val targetPackage = if (firstTab.sessionMode == WebAiSessionMode.CUSTOM_BROWSER && !firstTab.targetPackage.isNullOrBlank()) {
+            firstTab.targetPackage
+        } else {
+            targetBrowserPkg
+        }
+
+        if (!targetPackage.isNullOrBlank()) {
+            intent.intent.setPackage(targetPackage)
+        }
+
+        // Ephemeral / Incognito check for first tab
         if (firstTab.sessionMode == WebAiSessionMode.EPHEMERAL) {
+            // Firefox private browsing flags
+            intent.intent.putExtra("org.mozilla.firefox.PRIVATE_BROWSING", true)
+            intent.intent.putExtra("private_browsing_mode", true)
+            // Chrome / Chromium private browsing flags
             intent.intent.putExtra("com.google.android.apps.chrome.EXTRA_OPEN_NEW_INCOGNITO_TAB", true)
             intent.intent.putExtra("org.chromium.chrome.browser.customtabs.EXTRA_ENABLE_EPHEMERAL_BROWSING", true)
-        } else if (firstTab.sessionMode == WebAiSessionMode.CUSTOM_BROWSER && !firstTab.targetPackage.isNullOrBlank()) {
-            intent.intent.setPackage(firstTab.targetPackage)
         }
 
         intent.intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -158,13 +215,13 @@ object WebAiCustomTabManager {
             intent.launchUrl(context, Uri.parse(firstTab.url))
             WebAiProviderManager.recordActiveLaunch(firstTab.serviceName, firstTab.url)
             WebAiProviderManager.updateOpenTabCount(newTabs.size)
-            LogKeeper.log("INFO", TAG, "Launched Custom Tabs session with ${newTabs.size} tabs. Active: ${firstTab.serviceName}")
+            LogKeeper.log("INFO", TAG, "Launched Custom Tabs session ($targetPackage) with ${newTabs.size} tabs. Active: ${firstTab.serviceName}")
         } catch (e: Exception) {
             LogKeeper.log("WARNING", TAG, "Custom Tabs launch failed, falling back to Intent.ACTION_VIEW: ${e.message}")
             val fallbackIntent = Intent(Intent.ACTION_VIEW, Uri.parse(firstTab.url)).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                if (firstTab.sessionMode == WebAiSessionMode.CUSTOM_BROWSER && !firstTab.targetPackage.isNullOrBlank()) {
-                    setPackage(firstTab.targetPackage)
+                if (!targetPackage.isNullOrBlank()) {
+                    setPackage(targetPackage)
                 }
             }
             try {
@@ -201,13 +258,21 @@ object WebAiCustomTabManager {
 
         // Switch to the newly appended tab in the Custom Tab or Browser
         val targetTab = updatedTabs.first { it.id == activeId }
+        val targetPkg = if (targetTab.sessionMode == WebAiSessionMode.CUSTOM_BROWSER && !targetTab.targetPackage.isNullOrBlank()) {
+            targetTab.targetPackage
+        } else {
+            resolveTargetBrowserPackage(context)
+        }
         val navIntent = Intent(Intent.ACTION_VIEW, Uri.parse(targetTab.url)).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            if (!targetPkg.isNullOrBlank()) {
+                setPackage(targetPkg)
+            }
             if (targetTab.sessionMode == WebAiSessionMode.EPHEMERAL) {
+                putExtra("org.mozilla.firefox.PRIVATE_BROWSING", true)
+                putExtra("private_browsing_mode", true)
                 putExtra("com.google.android.apps.chrome.EXTRA_OPEN_NEW_INCOGNITO_TAB", true)
                 putExtra("org.chromium.chrome.browser.customtabs.EXTRA_ENABLE_EPHEMERAL_BROWSING", true)
-            } else if (targetTab.sessionMode == WebAiSessionMode.CUSTOM_BROWSER && !targetTab.targetPackage.isNullOrBlank()) {
-                setPackage(targetTab.targetPackage)
             }
         }
         try {

@@ -39,6 +39,7 @@ fun GlobalSidebar(
     val openTabCount by WebAiProviderManager.openTabCount.collectAsState()
     var workspaces by remember { mutableStateOf(emptyList<File>()) }
     var showKnowledgeBitsSheet by remember { mutableStateOf(false) }
+    var showMemoryScreen by remember { mutableStateOf(false) }
     
     LaunchedEffect(currentChatId, onClose) { // Trigger reload when sidebar opens or chat changes
         workspaces = LocalFileManager.getWorkspaces()
@@ -48,6 +49,19 @@ fun GlobalSidebar(
         com.example.ui.library.KnowledgeBitsBottomSheet(
             onDismiss = { showKnowledgeBitsSheet = false }
         )
+    }
+
+    if (showMemoryScreen) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showMemoryScreen = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize()) {
+                com.example.ui.brain.MemoryManagementScreen(
+                    onNavigateBack = { showMemoryScreen = false }
+                )
+            }
+        }
     }
 
     ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
@@ -80,6 +94,17 @@ fun GlobalSidebar(
             selected = false,
             onClick = { 
                 showKnowledgeBitsSheet = true
+                onClose()
+            },
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+        )
+
+        NavigationDrawerItem(
+            icon = { Icon(Icons.Default.Psychology, contentDescription = null) },
+            label = { Text("Brain & Memory Store") },
+            selected = false,
+            onClick = { 
+                showMemoryScreen = true
                 onClose()
             },
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)

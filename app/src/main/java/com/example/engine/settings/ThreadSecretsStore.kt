@@ -95,4 +95,27 @@ object ThreadSecretsStore {
         prefs.edit().clear().apply()
         LogKeeper.log("INFO", "ThreadSecretsStore", "Cleared all secrets for workspace $workspaceId")
     }
+
+    /**
+     * Finds all workspace IDs that have secrets saved, and returns map of workspaceId -> Map<Key, Value>.
+     */
+    fun getAllThreadSecrets(context: Context): Map<String, Map<String, String>> {
+        val result = mutableMapOf<String, Map<String, String>>()
+        try {
+            val prefsDir = java.io.File(context.applicationInfo.dataDir, "shared_prefs")
+            if (prefsDir.exists() && prefsDir.isDirectory) {
+                val files = prefsDir.listFiles { _, name -> name.startsWith(PREFS_PREFIX) && name.endsWith(".xml") }
+                files?.forEach { file ->
+                    val wsId = file.name.removePrefix(PREFS_PREFIX).removeSuffix(".xml")
+                    val secrets = getSecrets(context, wsId)
+                    if (secrets.isNotEmpty()) {
+                        result[wsId] = secrets
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            LogKeeper.log("ERROR", "ThreadSecretsStore", "Failed to list all thread secrets: ${e.message}")
+        }
+        return result
+    }
 }

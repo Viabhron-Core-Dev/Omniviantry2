@@ -104,7 +104,9 @@ fun WebAiPortalScreen(
         bottomBar = {
             if (selectedServiceIds.isNotEmpty()) {
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding(),
                     tonalElevation = 8.dp,
                     shadowElevation = 8.dp
                 ) {
@@ -143,6 +145,9 @@ fun WebAiPortalScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(
+                bottom = if (selectedServiceIds.isNotEmpty()) 16.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Memory Throttler Health Card
@@ -214,6 +219,52 @@ fun WebAiPortalScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                    }
+                }
+            }
+
+            // Browser Engine Indicator
+            item {
+                val currentEngine by WebAiProviderManager.browserEngine.collectAsState()
+                val isFirefox = currentEngine == WebAiProviderManager.ENGINE_FIREFOX
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isFirefox) Color(0xFFFF7139).copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Language,
+                            contentDescription = null,
+                            tint = if (isFirefox) Color(0xFFFF7139) else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (isFirefox) "Default Browser: Firefox (Custom Tabs)" else "Default Browser: $currentEngine",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isFirefox) Color(0xFFD84A1B) else MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Native bottom toolbar enabled for multi-tab switching & session control",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TextButton(
+                            onClick = onNavigateToSettings,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text("Change", fontSize = 12.sp)
                         }
                     }
                 }

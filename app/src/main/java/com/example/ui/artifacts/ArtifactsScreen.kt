@@ -1168,6 +1168,9 @@ fun AndroidViewWebView(
                 settings.databaseEnabled = true
                 settings.mediaPlaybackRequiresUserGesture = false
                 settings.allowFileAccess = true
+                settings.allowFileAccessFromFileURLs = true
+                settings.allowUniversalAccessFromFileURLs = true
+                settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
 
                 // Connect to LogKeeper via LogKeeperCatcher
                 LogKeeperCatcher.attachToWebView(this, "Artifact_$title")
@@ -1190,11 +1193,13 @@ fun AndroidViewWebView(
                 webViewClient = object : android.webkit.WebViewClient() {
                     override fun onPageStarted(view: android.webkit.WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                         super.onPageStarted(view, url, favicon)
+                        view?.evaluateJavascript(LogKeeperCatcher.getErrorCaptureScript(), null)
                         view?.evaluateJavascript(injectScript, null)
                     }
 
                     override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
                         super.onPageFinished(view, url)
+                        view?.evaluateJavascript(LogKeeperCatcher.getErrorCaptureScript(), null)
                         view?.evaluateJavascript(injectScript, null)
                         LogKeeper.log("INFO", "ArtifactViewer", "Loaded '$title' with $secretsCount injected secrets")
                     }

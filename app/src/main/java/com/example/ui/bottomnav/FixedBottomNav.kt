@@ -1,12 +1,13 @@
 package com.example.ui.bottomnav
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Chat
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -14,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,7 +23,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 enum class AppTab {
-    CHAT, CODE
+    CHAT, WORKSPACE;
+    companion object {
+        val CODE get() = WORKSPACE
+    }
 }
 
 @Composable
@@ -32,26 +37,28 @@ fun FixedBottomNav(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 3.dp
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // Placeholder for left alignment to center the toggle
+            // Placeholder for left alignment to balance the 3-dots button and center the toggle
             Spacer(modifier = Modifier.width(48.dp))
             
-            // Pill shaped toggle
+            // Sleek pill shaped toggle
             Row(
                 modifier = Modifier
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface)
-                    .padding(4.dp),
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                    .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)), CircleShape)
+                    .padding(3.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TabButton(
@@ -60,15 +67,19 @@ fun FixedBottomNav(
                     onClick = { onTabSelected(AppTab.CHAT) }
                 )
                 TabButton(
-                    text = "Code",
-                    isSelected = currentTab == AppTab.CODE,
-                    onClick = { onTabSelected(AppTab.CODE) }
+                    text = "Workspace",
+                    isSelected = currentTab == AppTab.WORKSPACE,
+                    onClick = { onTabSelected(AppTab.WORKSPACE) }
                 )
             }
             
-            // 3 dots menu
+            // 3 dots more menu (position strictly preserved)
             IconButton(onClick = onMoreClick) {
-                Icon(Icons.Default.MoreHoriz, contentDescription = "More options")
+                Icon(
+                    Icons.Default.MoreHoriz,
+                    contentDescription = "More options",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
@@ -76,17 +87,28 @@ fun FixedBottomNav(
 
 @Composable
 private fun TabButton(text: String, isSelected: Boolean, onClick: () -> Unit) {
-    val backgroundColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
-    val textColor = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
+    val animatedBg by animateColorAsState(
+        targetValue = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
+        label = "tab_bg"
+    )
+    val animatedText by animateColorAsState(
+        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        label = "tab_text"
+    )
     
     Box(
         modifier = Modifier
             .clip(CircleShape)
-            .background(backgroundColor)
+            .background(animatedBg)
             .clickable(onClick = onClick)
-            .padding(horizontal = 36.dp, vertical = 8.dp),
+            .padding(horizontal = 24.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = text, color = textColor, style = MaterialTheme.typography.labelLarge)
+        Text(
+            text = text,
+            color = animatedText,
+            style = MaterialTheme.typography.labelLarge
+        )
     }
 }
+

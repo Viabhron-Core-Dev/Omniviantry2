@@ -42,25 +42,33 @@ class WebAiQuickAddActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MyApplicationTheme {
-                WebAiQuickAddDialog(
-                    onDismiss = { finish() },
-                    onServiceSelected = { service, profile ->
-                        val targetUrl = profile.launchUrl.ifBlank { service.baseUrl }
-                        val newTab = WebAiActiveTab(
-                            id = "${service.id}_${System.currentTimeMillis()}",
-                            serviceId = service.id,
-                            serviceName = service.name,
-                            brandColorHex = service.brandColorHex,
-                            url = targetUrl,
-                            sessionMode = profile.sessionMode,
-                            profileLabel = profile.label,
-                            targetPackage = profile.targetPackage,
-                            isCurrent = true
-                        )
-                        WebAiCustomTabManager.appendAndSwitchTab(this, newTab)
-                        finish()
-                    }
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .navigationBarsPadding()
+                        .statusBarsPadding(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    WebAiQuickAddDialog(
+                        onDismiss = { finish() },
+                        onServiceSelected = { service, profile ->
+                            val targetUrl = profile.launchUrl.ifBlank { service.baseUrl }
+                            val newTab = WebAiActiveTab(
+                                id = "${service.id}_${System.currentTimeMillis()}",
+                                serviceId = service.id,
+                                serviceName = service.name,
+                                brandColorHex = service.brandColorHex,
+                                url = targetUrl,
+                                sessionMode = profile.sessionMode,
+                                profileLabel = profile.label,
+                                targetPackage = profile.targetPackage,
+                                isCurrent = true
+                            )
+                            WebAiCustomTabManager.appendAndSwitchTab(this@WebAiQuickAddActivity, newTab)
+                            finish()
+                        }
+                    )
+                }
             }
         }
     }
@@ -87,7 +95,8 @@ fun WebAiQuickAddDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .wrapContentHeight()
-                .padding(vertical = 24.dp)
+                .navigationBarsPadding()
+                .padding(vertical = 16.dp)
         ) {
             Column(
                 modifier = Modifier

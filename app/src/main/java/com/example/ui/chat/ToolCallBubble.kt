@@ -277,8 +277,20 @@ fun ToolCallBubble(
                         }
                     }
 
-                    // Approval Action Buttons
-                    if (status == ToolExecutionStatus.PENDING_APPROVAL) {
+                    // Approval Action Buttons & Interactive Parameter Widget
+                    val parameterSpec = remember(toolName, message.toolArgsJson) {
+                        InteractiveWidgetParser.parseFromToolArgs(toolName, message.toolArgsJson)
+                    }
+
+                    if (parameterSpec != null && status == ToolExecutionStatus.PENDING_APPROVAL) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        InteractiveWidgetCard(
+                            spec = parameterSpec,
+                            onAnswerSubmitted = { answer ->
+                                onDecision(UserToolDecision.ALLOW_ONCE)
+                            }
+                        )
+                    } else if (status == ToolExecutionStatus.PENDING_APPROVAL) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "This action requires your explicit permission before executing.",
