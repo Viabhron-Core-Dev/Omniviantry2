@@ -35,6 +35,7 @@ fun AudioViewer(
 
     var currentSliderPos by remember { mutableFloatStateOf(0f) }
     var isUserScrubbing by remember { mutableStateOf(false) }
+    var activeCommentRef by remember { mutableStateOf<StagedReference?>(null) }
 
     LaunchedEffect(playbackState.currentPositionMs) {
         if (!isUserScrubbing && playbackState.durationMs > 0) {
@@ -176,33 +177,62 @@ fun AudioViewer(
                 Spacer(Modifier.height(16.dp))
 
                 // Mark Audio Timestamp to AI
-                OutlinedButton(
-                    onClick = {
-                        val posMs = playbackState.currentPositionMs
-                        val posSec = (posMs / 1000).toInt()
-                        val formatted = String.format(java.util.Locale.US, "%02d:%02d", posSec / 60, posSec % 60)
-                        WorkspaceChatBridge.addStagedReference(
-                            StagedReference.MediaTimestamp(
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            val posMs = playbackState.currentPositionMs
+                            val posSec = (posMs / 1000).toInt()
+                            val formatted = String.format(java.util.Locale.US, "%02d:%02d", posSec / 60, posSec % 60)
+                            WorkspaceChatBridge.addStagedReference(
+                                StagedReference.MediaTimestamp(
+                                    file = file,
+                                    isVideo = false,
+                                    timestampMs = posMs,
+                                    formattedTime = formatted
+                                )
+                            )
+                            android.widget.Toast.makeText(
+                                context,
+                                "Staged audio @ $formatted to AI Basket (Total: ${WorkspaceChatBridge.getBasketCount()})",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Default.BookmarkAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Mark Timestamp", style = MaterialTheme.typography.labelMedium)
+                    }
+
+                    FilledTonalButton(
+                        onClick = {
+                            val posMs = playbackState.currentPositionMs
+                            val posSec = (posMs / 1000).toInt()
+                            val formatted = String.format(java.util.Locale.US, "%02d:%02d", posSec / 60, posSec % 60)
+                            activeCommentRef = StagedReference.MediaTimestamp(
                                 file = file,
                                 isVideo = false,
                                 timestampMs = posMs,
                                 formattedTime = formatted
                             )
-                        )
-                        android.widget.Toast.makeText(
-                            context,
-                            "Staged audio @ $formatted to AI Basket (Total: ${WorkspaceChatBridge.getBasketCount()})",
-                            android.widget.Toast.LENGTH_SHORT
-                        ).show()
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                ) {
-                    Icon(Icons.Default.BookmarkAdd, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Mark Timestamp to AI", style = MaterialTheme.typography.labelMedium)
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Default.AddComment, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Comment", style = MaterialTheme.typography.labelMedium)
+                    }
                 }
             }
+        }
+
+        if (activeCommentRef != null) {
+            ArtifactCommentBottomSheet(
+                reference = activeCommentRef!!,
+                onDismiss = { activeCommentRef = null }
+            )
         }
     }
 }

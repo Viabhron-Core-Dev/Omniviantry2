@@ -31,7 +31,7 @@ class WebAiTabBroadcastReceiver : BroadcastReceiver() {
                 val updatedTabs = currentTabs.map {
                     it.copy(isCurrent = it.id == tabId)
                 }
-                WebAiCustomTabManager.updateActiveTabs(updatedTabs, tabId)
+                WebAiCustomTabManager.updateActiveTabs(updatedTabs, tabId, context)
                 WebAiCustomTabManager.refreshCustomTabsToolbar(context)
 
                 // Launch/switch URL in the Custom Tab with session mode flags
@@ -69,7 +69,7 @@ class WebAiTabBroadcastReceiver : BroadcastReceiver() {
                 val remainingTabs = currentTabs.filter { it.id != tabId }
 
                 if (remainingTabs.isEmpty()) {
-                    WebAiCustomTabManager.updateActiveTabs(emptyList(), null)
+                    WebAiCustomTabManager.updateActiveTabs(emptyList(), null, context)
                     LogKeeper.log("INFO", TAG, "All tabs closed from strip.")
                     Toast.makeText(context, "All Web AI tabs closed", Toast.LENGTH_SHORT).show()
                 } else {
@@ -77,7 +77,7 @@ class WebAiTabBroadcastReceiver : BroadcastReceiver() {
                     val nextId = if (currentId == tabId) remainingTabs.first().id else currentId
                     val updatedTabs = remainingTabs.map { it.copy(isCurrent = it.id == nextId) }
 
-                    WebAiCustomTabManager.updateActiveTabs(updatedTabs, nextId)
+                    WebAiCustomTabManager.updateActiveTabs(updatedTabs, nextId, context)
                     WebAiCustomTabManager.refreshCustomTabsToolbar(context)
 
                     if (currentId == tabId) {

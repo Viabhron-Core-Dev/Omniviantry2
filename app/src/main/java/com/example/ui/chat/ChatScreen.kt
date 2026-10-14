@@ -83,6 +83,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import com.example.ui.code.StagedReference
 import com.example.ui.code.WorkspaceChatBridge
+import com.example.ui.code.ArtifactCommentBottomSheet
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.onCompletion
 import com.example.engine.omniroot.local.LlamaEngine
 import kotlinx.coroutines.flow.first
@@ -174,6 +177,7 @@ fun ChatScreen(
     var showArtifactsList by remember { mutableStateOf(false) }
     var previewingArtifact by remember { mutableStateOf<InChatArtifactInfo?>(null) }
     var showKnowledgeBitsPicker by remember { mutableStateOf(false) }
+    var editingStagedReference by remember { mutableStateOf<StagedReference?>(null) }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -405,7 +409,7 @@ fun ChatScreen(
         }
     }
 
-    val dispatchPrompt: (String) -> Unit = { rawPrompt ->
+    val dispatchPrompt: (String) -> Unit = dispatchPrompt@ { rawPrompt ->
         val promptToSend = rawPrompt.trim()
         val currentAttachment = pendingAttachmentUri
         val hasStagedRefs = WorkspaceChatBridge.getBasketCount() > 0
@@ -438,6 +442,24 @@ fun ChatScreen(
             inputText = ""
             pendingAttachmentUri = null
 
+            if (prompt.startsWith("/swarm", ignoreCase = true) || prompt.startsWith("/antigravity", ignoreCase = true)) {
+                val objective = prompt.substringAfter(" ").trim().ifBlank { "Decompose, implement, and review workspace enhancements" }
+                val swarmMsg = ChatMessage(
+                    text = "🚀 Initiated Antigravity Multi-Agent Swarm for objective: \"$objective\". Track parallel agents in the timeline card above.",
+                    role = MessageRole.AI,
+                    isFolded = false
+                )
+                chatMessages.add(swarmMsg)
+                saveMessage(swarmMsg)
+                com.example.engine.orchestrator.AntigravityOrchestrator.startSwarm(
+                    context = context,
+                    sessionId = sessionId,
+                    workspaceId = sessionId,
+                    objective = objective
+                )
+                return@dispatchPrompt
+            }
+
             val parts = selectedModel.split("/", limit = 2)
             var currentProvider = parts.getOrNull(0)
             var currentModel = parts.getOrNull(1) ?: selectedModel
@@ -467,10 +489,26 @@ fun ChatScreen(
                     val useMlock = currentSettings?.useMlock ?: false
 
                     if (currentProvider == "local_gguf") {
-                        // Mini-Phase 3 & 4: Direct Bypass and Streaming UI with SmolChat hardware engine
+                        // Phase 14: Unified Dynamic Prompt Assembly & Drift Mitigation for Local GGUF
                         val models = db.aiModelDao().getAllModels().first()
                         val modelEntity = models.firstOrNull { it.providerId == "local_gguf" && it.modelId == currentModel }
                         val absolutePath = modelEntity?.description ?: currentModel
+
+                        val rawHistory = chatMessages.filter { it.id != generatingMessage.id }
+                        val assemblyResult = try {
+                            com.example.engine.brain.PromptAssembler.assembleFromChatMessages(
+                                context = context,
+                                sessionId = sessionId,
+                                userPrompt = prompt,
+                                messages = rawHistory,
+                                targetModel = "local_gguf",
+                                customSystemPrompt = systemPrompt,
+                                localContextOverride = contextSize
+                            )
+                        } catch (e: Exception) {
+                            LogKeeper.log("Local AI", "AssemblyFallback", "PromptAssembler error: ${e.message}")
+                            null
+                        }
 
                         val llama = LocalAiManager.getOrLoadEngine(
                             context,
@@ -483,12 +521,20 @@ fun ChatScreen(
 
                         if (llama != null) {
                             var combinedPrompt = ""
-                            if (systemPrompt.isNotBlank()) {
-                                combinedPrompt += "<|im_start|>system\n$systemPrompt<|im_end|>\n"
+                            val effectiveSystem = assemblyResult?.systemPrompt ?: systemPrompt
+                            if (effectiveSystem.isNotBlank()) {
+                                combinedPrompt += "<|im_start|>system\n$effectiveSystem<|im_end|>\n"
                             }
-                            chatMessages.filter { it.id != generatingMessage.id }.forEach { m ->
-                                val roleStr = if (m.role == MessageRole.USER) "user" else "assistant"
-                                combinedPrompt += "<|im_start|>$roleStr\n${m.text}<|im_end|>\n"
+                            if (assemblyResult != null && assemblyResult.prunedMessages.isNotEmpty()) {
+                                assemblyResult.prunedMessages.forEach { m ->
+                                    val roleStr = if (m.role == "user") "user" else "assistant"
+                                    combinedPrompt += "<|im_start|>$roleStr\n${m.content}<|im_end|>\n"
+                                }
+                            } else {
+                                rawHistory.forEach { m ->
+                                    val roleStr = if (m.role == MessageRole.USER) "user" else "assistant"
+                                    combinedPrompt += "<|im_start|>$roleStr\n${m.text}<|im_end|>\n"
+                                }
                             }
                             combinedPrompt += "<|im_start|>assistant\n"
 
@@ -532,6 +578,24 @@ fun ChatScreen(
                                 )
                                 chatMessages[index] = finalMsg
                                 saveMessage(finalMsg)
+
+                                // Phase 14: Automated Fact Extraction & Rolling Summarization
+                                com.example.engine.brain.FactExtractorEngine.extractAndPromoteAsync(
+                                    context = context,
+                                    sessionId = sessionId,
+                                    userPrompt = prompt,
+                                    aiResponse = reasoning.cleanAnswer
+                                )
+                                if (assemblyResult != null) {
+                                    com.example.engine.brain.RollingSummaryManager.checkAndTriggerRollingSummarization(
+                                        context = context,
+                                        sessionId = sessionId,
+                                        fullHistory = rawHistory,
+                                        retainedHistory = rawHistory.filter { rawMsg ->
+                                            assemblyResult.prunedMessages.any { it.content == rawMsg.text }
+                                        }
+                                    )
+                                }
                             }
                         } else {
                             val index = chatMessages.indexOfFirst { it.id == generatingMessage.id }
@@ -986,12 +1050,85 @@ fun ChatScreen(
             }
         }
 
+        // Phase 14: Context Drift & Token Budget Indicator
+        val chatSettingsState by db.chatSettingsDao().getSettingsFlow(sessionId).collectAsState(initial = null)
+        val hasRollingSummary = remember(chatSettingsState?.rollingSummary) {
+            !chatSettingsState?.rollingSummary.isNullOrBlank()
+        }
+        val estimatedTotalChars = remember(chatMessages.size) {
+            chatMessages.sumOf { it.text.length }
+        }
+        val estimatedUsedTokens = remember(estimatedTotalChars) {
+            (estimatedTotalChars / 3.8).toInt().coerceAtLeast(1)
+        }
+        val maxModelBudget = remember(selectedModel, chatSettingsState?.contextSize) {
+            com.example.engine.brain.ContextBudgetManager.getProfileForModel(selectedModel, chatSettingsState?.contextSize).maxContextTokens
+        }
+
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showTokenPanel = true }
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            tonalElevation = 1.dp
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "~$estimatedUsedTokens / $maxModelBudget tokens",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (hasRollingSummary) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer
+                        ) {
+                            Text(
+                                "Summary Active",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(
+                        "Inspect Context →",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item(key = "antigravity_timeline") {
+                AntigravityTimelineCard()
+            }
             items(chatMessages.size, key = { chatMessages[it].id }) { index ->
                 val message = chatMessages[index]
                 when (message.role) {
@@ -1147,42 +1284,107 @@ fun ChatScreen(
                             Spacer(Modifier.height(4.dp))
 
                             LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 items(stagedReferences, key = { it.id }) { ref ->
-                                    InputChip(
-                                        selected = true,
-                                        onClick = { /* Selected indicator */ },
-                                        label = {
-                                            Text(
-                                                ref.label,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        },
-                                        leadingIcon = {
-                                            val icon = when (ref) {
-                                                is StagedReference.CodeLines -> Icons.Default.Code
-                                                is StagedReference.ImageRegion -> Icons.Default.Image
-                                                is StagedReference.MediaTimestamp -> if (ref.isVideo) Icons.Default.Movie else Icons.Default.GraphicEq
-                                                is StagedReference.DocumentPage -> Icons.Default.Description
-                                                is StagedReference.PresentationSlide -> Icons.Default.Slideshow
-                                                is StagedReference.GenericArtifact -> Icons.Default.Attachment
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            if (!ref.userComment.isNullOrBlank()) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                        ),
+                                        tonalElevation = 2.dp,
+                                        modifier = Modifier
+                                            .clickable {
+                                                onOpenInWorkspace(ref.fileName)
+                                                Toast.makeText(context, "Navigating to ${ref.fileName}", Toast.LENGTH_SHORT).show()
                                             }
-                                            Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        },
-                                        trailingIcon = {
-                                            IconButton(
-                                                onClick = { WorkspaceChatBridge.removeStagedReference(ref.id) },
-                                                modifier = Modifier.size(16.dp)
+                                            .testTag("staged_artifact_card_${ref.id}")
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
-                                                Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(12.dp))
+                                                val icon = when (ref) {
+                                                    is StagedReference.CodeLines -> Icons.Default.Code
+                                                    is StagedReference.ImageRegion -> Icons.Default.Image
+                                                    is StagedReference.MediaTimestamp -> if (ref.isVideo) Icons.Default.Movie else Icons.Default.GraphicEq
+                                                    is StagedReference.DocumentPage -> Icons.Default.Description
+                                                    is StagedReference.PresentationSlide -> Icons.Default.Slideshow
+                                                    is StagedReference.GenericArtifact -> Icons.Default.Attachment
+                                                }
+                                                Icon(
+                                                    icon,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(14.dp),
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    ref.label,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                IconButton(
+                                                    onClick = { editingStagedReference = ref },
+                                                    modifier = Modifier.size(18.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Edit,
+                                                        contentDescription = "Edit Comment",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(11.dp)
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = { WorkspaceChatBridge.removeStagedReference(ref.id) },
+                                                    modifier = Modifier.size(18.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Close,
+                                                        contentDescription = "Remove",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(12.dp)
+                                                    )
+                                                }
                                             }
-                                        },
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
+                                            if (!ref.userComment.isNullOrBlank()) {
+                                                Spacer(Modifier.height(3.dp))
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier
+                                                        .background(
+                                                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                                            RoundedCornerShape(6.dp)
+                                                        )
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Edit,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(10.dp),
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                    Spacer(Modifier.width(4.dp))
+                                                    Text(
+                                                        text = "\"${ref.userComment}\"",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontSize = 11.sp,
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1368,7 +1570,16 @@ fun ChatScreen(
         
         if (showTokenPanel) {
             AiTokenPanelBottomSheet(
-                onDismiss = { showTokenPanel = false }
+                onDismiss = { showTokenPanel = false },
+                sessionId = sessionId,
+                activeModel = selectedModel
+            )
+        }
+
+        if (editingStagedReference != null) {
+            ArtifactCommentBottomSheet(
+                reference = editingStagedReference!!,
+                onDismiss = { editingStagedReference = null }
             )
         }
         

@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -68,6 +69,7 @@ fun PdfViewer(file: File, modifier: Modifier = Modifier) {
 fun PdfPageViewer(file: File, renderer: PdfRenderer, pageIndex: Int) {
     val context = LocalContext.current
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var activeCommentRef by remember { mutableStateOf<StagedReference?>(null) }
 
     LaunchedEffect(renderer, pageIndex) {
         try {
@@ -98,28 +100,49 @@ fun PdfPageViewer(file: File, renderer: PdfRenderer, pageIndex: Int) {
                 Text("Page ${pageIndex + 1} of ${renderer.pageCount}", style = MaterialTheme.typography.labelMedium)
             }
 
-            OutlinedButton(
-                onClick = {
-                    WorkspaceChatBridge.addStagedReference(
-                        StagedReference.DocumentPage(
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(
+                    onClick = {
+                        WorkspaceChatBridge.addStagedReference(
+                            StagedReference.DocumentPage(
+                                file = file,
+                                pageIndex = pageIndex,
+                                totalPages = renderer.pageCount
+                            )
+                        )
+                        Toast.makeText(
+                            context,
+                            "Staged Page ${pageIndex + 1} to AI Basket (Total: ${WorkspaceChatBridge.getBasketCount()})",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Icon(Icons.Default.BookmarkAdd, contentDescription = null, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Mark", fontSize = 11.sp)
+                }
+
+                Spacer(Modifier.width(6.dp))
+
+                FilledTonalButton(
+                    onClick = {
+                        activeCommentRef = StagedReference.DocumentPage(
                             file = file,
                             pageIndex = pageIndex,
                             totalPages = renderer.pageCount
                         )
-                    )
-                    Toast.makeText(
-                        context,
-                        "Staged Page ${pageIndex + 1} to AI Basket (Total: ${WorkspaceChatBridge.getBasketCount()})",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                },
-                shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                modifier = Modifier.height(28.dp)
-            ) {
-                Icon(Icons.Default.BookmarkAdd, contentDescription = null, modifier = Modifier.size(12.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Mark Page to AI", fontSize = 11.sp)
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Icon(Icons.Default.AddComment, contentDescription = null, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Comment", fontSize = 11.sp)
+                }
             }
         }
 
@@ -134,6 +157,13 @@ fun PdfPageViewer(file: File, renderer: PdfRenderer, pageIndex: Int) {
             Box(modifier = Modifier.fillMaxWidth().aspectRatio(0.75f), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
+        }
+
+        if (activeCommentRef != null) {
+            ArtifactCommentBottomSheet(
+                reference = activeCommentRef!!,
+                onDismiss = { activeCommentRef = null }
+            )
         }
     }
 }

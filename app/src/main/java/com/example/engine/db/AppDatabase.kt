@@ -32,7 +32,7 @@ import com.example.engine.db.ProviderPrepopulator
     com.example.engine.plugins.PluginEntity::class,
     com.example.engine.omniroot.artifact.ArtifactProviderEntity::class,
     MemoryEntity::class
-], version = 22, exportSchema = false)
+], version = 23, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun workspaceConfigDao(): WorkspaceConfigDao
@@ -267,6 +267,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `chat_settings` ADD COLUMN `rollingSummary` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `chat_settings` ADD COLUMN `summaryUpToMessageId` TEXT DEFAULT NULL")
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
         fun getDatabase(context: Context): AppDatabase {
@@ -281,7 +288,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
                     MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15,
                     MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20,
-                    MIGRATION_20_21, MIGRATION_21_22
+                    MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23
                 )
                 .fallbackToDestructiveMigration()
                 .build()
@@ -289,6 +296,8 @@ abstract class AppDatabase : RoomDatabase() {
                 instance
             }
         }
+
+        fun getInstance(context: Context): AppDatabase = getDatabase(context)
     }
 
     private class DatabaseCallback : RoomDatabase.Callback() {

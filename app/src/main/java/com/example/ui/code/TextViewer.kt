@@ -27,10 +27,12 @@ import java.io.File
 fun TextViewer(
     file: File,
     editorState: CodeEditorState,
+    onNavigateToChat: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var showLinePicker by remember { mutableStateOf(false) }
+    var commentReferenceToStage by remember { mutableStateOf<StagedReference?>(null) }
 
     LaunchedEffect(file) {
         editorState.loadFile(file)
@@ -74,10 +76,29 @@ fun TextViewer(
                 )
             }
 
-            // Floating "Mark Lines to AI" Pill Button (Mini-Phase 5 Deliverable 2)
+            // Floating Contextual Action Button (Comment / Stage Lines)
             val basketCount by remember { derivedStateOf { WorkspaceChatBridge.getBasketCount() } }
             FloatingActionButton(
-                onClick = { showLinePicker = true },
+                onClick = {
+                    val text = editorState.content.text
+                    val sel = editorState.content.selection
+                    val hasSelection = sel.start != sel.end && text.isNotEmpty()
+                    if (hasSelection) {
+                        val selMin = minOf(sel.start, sel.end).coerceIn(0, text.length)
+                        val selMax = maxOf(sel.start, sel.end).coerceIn(0, text.length)
+                        val startLine = text.substring(0, selMin).count { it == '\n' } + 1
+                        val endLine = text.substring(0, selMax).count { it == '\n' } + 1
+                        val excerpt = text.substring(selMin, selMax)
+                        commentReferenceToStage = StagedReference.CodeLines(
+                            file = file,
+                            startLine = startLine,
+                            endLine = endLine,
+                            excerpt = excerpt
+                        )
+                    } else {
+                        showLinePicker = true
+                    }
+                },
                 shape = RoundedCornerShape(16.dp),
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -89,10 +110,18 @@ fun TextViewer(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.BookmarkAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                    val sel = editorState.content.selection
+                    val hasSelection = sel.start != sel.end
+                    Icon(
+                        if (hasSelection) Icons.Default.AddComment else Icons.Default.BookmarkAdd,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        if (basketCount > 0) "Mark to AI ($basketCount)" else "Mark to AI",
+                        if (hasSelection) "Comment Selection"
+                        else if (basketCount > 0) "Comment Lines ($basketCount)"
+                        else "Comment Lines",
                         style = MaterialTheme.typography.labelMedium
                     )
                 }
@@ -146,30 +175,50 @@ fun TextViewer(
                     }
                 },
                 confirmButton = {
-                    Button(
-                        onClick = {
-                            val start = (startLineStr.toIntOrNull() ?: 1).coerceIn(1, totalLines)
-                            val end = (endLineStr.toIntOrNull() ?: totalLines).coerceIn(start, totalLines)
-                            val lines = editorState.content.text.lines()
-                            val excerpt = lines.subList(start - 1, end).joinToString("\n")
-                            
-                            WorkspaceChatBridge.addStagedReference(
-                                StagedReference.CodeLines(
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(
+                            onClick = {
+                                val start = (startLineStr.toIntOrNull() ?: 1).coerceIn(1, totalLines)
+                                val end = (endLineStr.toIntOrNull() ?: totalLines).coerceIn(start, totalLines)
+                                val lines = editorState.content.text.lines()
+                                val excerpt = lines.subList(start - 1, end).joinToString("\n")
+                                WorkspaceChatBridge.addStagedReference(
+                                    StagedReference.CodeLines(
+                                        file = file,
+                                        startLine = start,
+                                        endLine = end,
+                                        excerpt = excerpt
+                                    )
+                                )
+                                Toast.makeText(
+                                    context,
+                                    "Staged lines $start-$end to AI Basket (Total: ${WorkspaceChatBridge.getBasketCount()})",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                showLinePicker = false
+                            }
+                        ) {
+                            Text("Quick Stage")
+                        }
+                        Button(
+                            onClick = {
+                                val start = (startLineStr.toIntOrNull() ?: 1).coerceIn(1, totalLines)
+                                val end = (endLineStr.toIntOrNull() ?: totalLines).coerceIn(start, totalLines)
+                                val lines = editorState.content.text.lines()
+                                val excerpt = lines.subList(start - 1, end).joinToString("\n")
+                                commentReferenceToStage = StagedReference.CodeLines(
                                     file = file,
                                     startLine = start,
                                     endLine = end,
                                     excerpt = excerpt
                                 )
-                            )
-                            Toast.makeText(
-                                context,
-                                "Staged lines $start-$end to AI Basket (Total: ${WorkspaceChatBridge.getBasketCount()})",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            showLinePicker = false
+                                showLinePicker = false
+                            }
+                        ) {
+                            Icon(Icons.Default.AddComment, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Comment")
                         }
-                    ) {
-                        Text("Stage Lines")
                     }
                 },
                 dismissButton = {
@@ -177,6 +226,14 @@ fun TextViewer(
                         Text("Cancel")
                     }
                 }
+            )
+        }
+
+        if (commentReferenceToStage != null) {
+            ArtifactCommentBottomSheet(
+                reference = commentReferenceToStage!!,
+                onDismiss = { commentReferenceToStage = null },
+                onNavigateToChat = onNavigateToChat
             )
         }
     }

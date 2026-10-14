@@ -15,5 +15,7 @@ data class ChatSettingsEntity(
     val numThreads: Int = 4,
     val useMmap: Boolean = true,
     val useMlock: Boolean = false,
-    val unfoldOnScreen: Boolean = false
+    val unfoldOnScreen: Boolean = false,
+    val rollingSummary: String? = null,
+    val summaryUpToMessageId: String? = null
 )

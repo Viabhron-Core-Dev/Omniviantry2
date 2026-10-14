@@ -6,6 +6,7 @@ import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,8 +22,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.*
@@ -55,6 +59,7 @@ fun CodeScreen(
     var openTabs by remember { mutableStateOf(listOf<OpenFileTab>()) }
     var activeTabIndex by remember { mutableIntStateOf(-1) }
     var isMinimized by remember { mutableStateOf(false) }
+    var showCommentSheetForFile by remember { mutableStateOf<File?>(null) }
 
     val activeTab = openTabs.getOrNull(activeTabIndex)
     val selectedFile = activeTab?.fileNode
@@ -120,13 +125,65 @@ fun CodeScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             TopAppBar(
                 title = { 
+                    val relativePath = remember(selectedFile?.file?.path) {
+                        if (selectedFile != null) {
+                            val wsDir = com.example.engine.fs.LocalFileManager.getWorkspaceDir()
+                            val path = selectedFile.file.relativeToOrNull(wsDir)?.path ?: selectedFile.name
+                            path.replace(java.io.File.separatorChar, '/')
+                        } else ""
+                    }
                     Column {
-                        val titleText = if (selectedFile != null && !isMinimized) selectedFile.name else workspaceName.value
-                        Text(titleText, style = MaterialTheme.typography.titleMedium)
-                        if (selectedFile != null && !isMinimized && editorState.isLiveGeneration) {
-                            Text("Live Generation View", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                        } else if (isMinimized || selectedFile == null) {
-                            Text("Workspace Explorer", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                        if (selectedFile != null && !isMinimized) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "workspace",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                                Text(
+                                    text = " / ",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                )
+                                val parts = relativePath.split("/")
+                                if (parts.size > 1) {
+                                    val dirParts = parts.dropLast(1)
+                                    val dirDisplay = if (dirParts.size > 2) {
+                                        "... / " + dirParts.last()
+                                    } else {
+                                        dirParts.joinToString(" / ")
+                                    }
+                                    Text(
+                                        text = dirDisplay,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = " / ",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                    )
+                                }
+                                Text(
+                                    text = selectedFile.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (editorState.isLiveGeneration) {
+                                Text("● Live Generation View", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                            }
+                        } else {
+                            Text(workspaceName.value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Code & Workspace Explorer", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
                         }
                     }
                 },
@@ -402,15 +459,15 @@ fun CodeScreen(
                         val isNonCodeArtifact = !isSourceCodeFile(name)
 
                         Surface(
-                            tonalElevation = 2.dp,
-                            color = MaterialTheme.colorScheme.surface,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                            tonalElevation = 1.dp,
+                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                                    .padding(horizontal = 12.dp, vertical = 5.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -430,7 +487,7 @@ fun CodeScreen(
                                                 },
                                                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
                                             ) {
-                                                Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(15.dp))
                                                 Spacer(Modifier.width(4.dp))
                                                 Text("View", style = MaterialTheme.typography.labelSmall)
                                             }
@@ -446,24 +503,44 @@ fun CodeScreen(
                                                 },
                                                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
                                             ) {
-                                                Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
                                                 Spacer(Modifier.width(4.dp))
                                                 Text("Raw", style = MaterialTheme.typography.labelSmall)
                                             }
                                         }
                                     } else {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Default.Code, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                                .border(
+                                                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Code,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(15.dp),
+                                                tint = getFileIconTint(currentFile.name)
+                                            )
                                             Spacer(Modifier.width(6.dp))
-                                            Text("Source", style = MaterialTheme.typography.labelMedium)
+                                            Text(
+                                                "Source",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
                                         }
                                     }
 
                                     Spacer(Modifier.width(8.dp))
 
-                                    // "Pass to AI" Action Button (Mini-Phase 5 Multimodal Staging)
+                                    // "Pass to AI" Action Button (Multimodal Staging)
                                     val basketRefs by WorkspaceChatBridge.stagedReferences.collectAsState()
-                                    Button(
+                                    FilledTonalButton(
                                         onClick = {
                                             val promptBridge = "@artifact/${currentFile.name} Please examine or work on this artifact."
                                             WorkspaceChatBridge.stagePrompt(promptBridge)
@@ -476,15 +553,32 @@ fun CodeScreen(
                                             Toast.makeText(context, "Staged '${currentFile.name}' to Basket (${WorkspaceChatBridge.getBasketCount()})", Toast.LENGTH_SHORT).show()
                                             onNavigateToChat()
                                         },
-                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                        shape = RoundedCornerShape(8.dp),
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        modifier = Modifier.height(30.dp)
+                                        modifier = Modifier.height(28.dp)
                                     ) {
-                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(12.dp))
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.primary)
                                         Spacer(Modifier.width(4.dp))
                                         Text(
-                                            if (basketRefs.isNotEmpty()) "AI (${basketRefs.size})" else "AI",
-                                            style = MaterialTheme.typography.labelSmall
+                                            if (basketRefs.isNotEmpty()) "Stage (${basketRefs.size})" else "Stage",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+
+                                    Spacer(Modifier.width(6.dp))
+
+                                    // Google AI Studio Contextual Comment Button
+                                    FilledTonalIconButton(
+                                        onClick = { showCommentSheetForFile = currentFile },
+                                        modifier = Modifier.size(28.dp),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.AddComment,
+                                            contentDescription = "Comment for AI",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(14.dp)
                                         )
                                     }
                                 }
@@ -493,25 +587,25 @@ fun CodeScreen(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     IconButton(
                                         onClick = { isMinimized = true },
-                                        modifier = Modifier.size(32.dp)
+                                        modifier = Modifier.size(28.dp)
                                     ) {
                                         Icon(
                                             Icons.Default.Remove,
                                             contentDescription = "Minimize File",
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
-                                    Spacer(Modifier.width(4.dp))
+                                    Spacer(Modifier.width(2.dp))
                                     IconButton(
                                         onClick = { closeTab(activeTabIndex) },
-                                        modifier = Modifier.size(32.dp)
+                                        modifier = Modifier.size(28.dp)
                                     ) {
                                         Icon(
                                             Icons.Default.Close,
                                             contentDescription = "Close File",
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
                                 }
@@ -568,37 +662,38 @@ fun CodeScreen(
                                 onFileOpenWith = { fileNode, viewer ->
                                     openOrFocusTab(fileNode, viewerOverride = viewer, rawMode = (viewer == ViewerType.CODE))
                                 },
-                                onCloseClick = { isMinimized = false }
+                                onCloseClick = { isMinimized = false },
+                                onNavigateToChat = onNavigateToChat
                             )
                         }
                     }
 
-                    // Bottom Carousel of Cards (Chrome Android style)
+                    // Bottom File Tabs Strip (Google AI Studio IDE tabs style)
                     if (openTabs.isNotEmpty()) {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
-                            color = MaterialTheme.colorScheme.surface,
-                            tonalElevation = 2.dp,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            tonalElevation = 1.dp,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                         ) {
                             LazyRow(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    .padding(horizontal = 8.dp, vertical = 5.dp),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 itemsIndexed(openTabs) { idx, tab ->
                                     val isActive = (idx == activeTabIndex && !isMinimized)
                                     Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = if (isActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (isActive) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
                                         border = BorderStroke(
                                             1.dp,
-                                            if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                                            if (isActive) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
                                         ),
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(10.dp))
+                                            .clip(RoundedCornerShape(8.dp))
                                             .clickable {
                                                 if (idx == activeTabIndex) {
                                                     isMinimized = !isMinimized
@@ -611,46 +706,57 @@ fun CodeScreen(
                                                 }
                                             }
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                imageVector = getFileIcon(tab.fileNode.name),
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp),
-                                                tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            Spacer(Modifier.width(6.dp))
-                                            Text(
-                                                text = tab.fileNode.name,
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                                                maxLines = 1,
-                                                modifier = Modifier.widthIn(max = 110.dp)
-                                            )
-                                            if (idx == activeTabIndex && isMinimized) {
-                                                Spacer(Modifier.width(4.dp))
-                                                Text(
-                                                    text = "(_)",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.secondary
-                                                )
-                                            }
-                                            Spacer(Modifier.width(6.dp))
-                                            // Tiny 'x' in corner to close tab
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(20.dp)
-                                                    .clip(CircleShape)
-                                                    .clickable { closeTab(idx) },
-                                                contentAlignment = Alignment.Center
+                                        Column {
+                                            Row(
+                                                modifier = Modifier.padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 5.dp),
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Icon(
-                                                    Icons.Default.Close,
-                                                    contentDescription = "Close tab",
-                                                    modifier = Modifier.size(12.dp),
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    imageVector = getFileIcon(tab.fileNode.name),
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(15.dp),
+                                                    tint = getFileIconTint(tab.fileNode.name)
+                                                )
+                                                Spacer(Modifier.width(6.dp))
+                                                Text(
+                                                    text = tab.fileNode.name,
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                                                    color = if (isActive) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    modifier = Modifier.widthIn(max = 120.dp)
+                                                )
+                                                if (idx == activeTabIndex && isMinimized) {
+                                                    Spacer(Modifier.width(4.dp))
+                                                    Text(
+                                                        text = "• min",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.secondary
+                                                    )
+                                                }
+                                                Spacer(Modifier.width(6.dp))
+                                                // Close tab button
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(20.dp)
+                                                        .clip(CircleShape)
+                                                        .clickable { closeTab(idx) },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Close,
+                                                        contentDescription = "Close tab",
+                                                        modifier = Modifier.size(12.dp),
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                            if (isActive) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(2.dp)
+                                                        .background(MaterialTheme.colorScheme.primary)
                                                 )
                                             }
                                         }
@@ -661,7 +767,7 @@ fun CodeScreen(
                                 item {
                                     IconButton(
                                         onClick = { isMinimized = true },
-                                        modifier = Modifier.size(32.dp)
+                                        modifier = Modifier.size(30.dp)
                                     ) {
                                         Icon(
                                             Icons.Default.Add,
@@ -675,6 +781,16 @@ fun CodeScreen(
                         }
                     }
                 }
+        if (showCommentSheetForFile != null) {
+            ArtifactCommentBottomSheet(
+                reference = StagedReference.GenericArtifact(
+                    file = showCommentSheetForFile!!,
+                    summary = "Artifact ${showCommentSheetForFile!!.name}"
+                ),
+                onDismiss = { showCommentSheetForFile = null },
+                onNavigateToChat = onNavigateToChat
+            )
+        }
     }
 }
 
@@ -688,6 +804,21 @@ private fun getFileIcon(name: String): androidx.compose.ui.graphics.vector.Image
         lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.endsWith(".webm") || lower.endsWith(".mov") -> Icons.Default.VideoFile
         lower.endsWith(".mp3") || lower.endsWith(".wav") || lower.endsWith(".m4a") || lower.endsWith(".ogg") || lower.endsWith(".flac") -> Icons.Default.AudioFile
         else -> Icons.Default.InsertDriveFile
+    }
+}
+
+private fun getFileIconTint(name: String): Color {
+    val lower = name.lowercase()
+    return when {
+        lower.endsWith(".kt") || lower.endsWith(".java") -> Color(0xFF9C27B0) // Kotlin purple
+        lower.endsWith(".py") -> Color(0xFF1976D2) // Python blue
+        lower.endsWith(".js") || lower.endsWith(".ts") || lower.endsWith(".tsx") -> Color(0xFFFBC02D) // JS/TS yellow
+        lower.endsWith(".json") || lower.endsWith(".xml") || lower.endsWith(".toml") || lower.endsWith(".gradle") || lower.endsWith(".kts") || lower.endsWith(".yaml") || lower.endsWith(".yml") -> Color(0xFFE65100) // Config orange
+        lower.endsWith(".md") || lower.endsWith(".txt") -> Color(0xFF00897B) // Docs teal
+        lower.endsWith(".jpg") || lower.endsWith(".png") || lower.endsWith(".jpeg") || lower.endsWith(".webp") || lower.endsWith(".gif") || lower.endsWith(".svg") -> Color(0xFFE91E63) // Image pink
+        lower.endsWith(".mp4") || lower.endsWith(".mov") || lower.endsWith(".webm") || lower.endsWith(".mp3") || lower.endsWith(".wav") -> Color(0xFF00ACC1) // Media cyan
+        lower.endsWith(".pdf") -> Color(0xFFD32F2F) // PDF red
+        else -> Color(0xFF78909C) // Default slate
     }
 }
 

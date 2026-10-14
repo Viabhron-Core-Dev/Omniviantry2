@@ -1,177 +1,91 @@
-# OmniRoot Modern UI & Experience Redesign
+# Google AI Studio Build UI Polish: Chat & Code Tabs
 
-A cohesive design and architectural plan to elevate the OmniRoot interface to modern commercial standards (inspired by Claude Artifacts, Google AI Studio, ChatGPT, and Gemini) while retaining all existing action buttons, placement hierarchies, and defaulting to a crisp, high-contrast Light Theme.
-
----
-
-## User Review & Critical Decisions
-
-> [!IMPORTANT]
-> The following directions were confirmed during interactive clarification and form the foundation of this redesign:
-
-- **Primary Navigation (Tabs)**: Retain the bottom pill toggle for `Chat` and `Code` plus the more-options menu button in their existing layout, upgraded with sleek pill geometry, active indicator animations, tonal container surfaces, and haptic feedback.
-- **File Explorer & Workspace**: Replace the cramped slide-out panel with an expansive, full-screen modern file manager featuring collapsible directory cards, breadcrumbs, search filtering, and file-type badge iconography.
-- **AI Action Steps**: Implement collapsible Google AI Studio-style action step pills immediately following assistant responses, summarizing tool executions (file reads/writes, web search, terminal commands) and token metrics with an expandable audit trail.
-- **Gemini Attachment Sheet**: Redesign the attachment picker into a clean 2-row grid of rounded squircle action tiles with distinctive pastel icons and subtle micro-interactions.
-- **Default Theme**: Enforce an intentional, modern **Light Theme** as the application default (subtle off-white background `#F8FAFC`, crisp slate card borders, refined typography, and indigo/violet primary accents) with seamless dark mode support.
-- **Button Placement Fidelity**: Strict zero-drift preservation of all current buttons, floating action buttons (LogKeeper bug report), top-bar action menus, and camera/mic inputs.
+Architectural design, UI comparison, and surgical polish plan to align the mobile app's **Chat** and **Code** (Workspace) tabs with the modern **Google AI Studio Build** aesthetic, strictly respecting the user's requirement to polish the existing architecture without disruptive redesigns.
 
 ---
 
-## 1. Overview & Core Concept
+### User Direction & Confirmed Guardrails
 
-### What It Delivers
-This upgrade addresses visual clutter, friction, and navigation stiffness in the current chat and workspace experience. It transforms OmniRoot into a refined developer and AI environment combining:
-1. The spacious, readable message presentation of **ChatGPT**.
-2. The interactive, multi-view inspection and code preview capabilities of **Claude Artifacts**.
-3. The granular execution transparency and collapsible run actions of **Google AI Studio**.
-4. The rapid, touch-friendly attachment sheet design of **Google Gemini**.
-
-### Target Audience & Persona
-Power users, software engineers, and AI developers navigating complex multi-file projects, inspecting tool execution runs, and generating code on mobile and tablet devices.
+- **Core Intent**: Align visual aesthetic and micro-interactions with Google AI Studio's Build interface, specifically focusing on the **Chat** and **Code** tabs.
+- **Decision 1 (Navigation & Tab Switcher)**: Keep the existing bottom pill switcher location and structure. Refine the label to "Code" (matching Google AI Studio's "Chat | Code" pair) and polish the pill toggle's typography, container stroke, and smooth sliding indicator.
+- **Decision 2 (Mobile File Navigation)**: Preserve the existing layout and mode switcher (full-screen file explorer toggle + active editor viewport + horizontal open-tabs dock). Polish visual hierarchy, tree indentations, file icon color accents, and breadcrumbs.
+- **Decision 3 (Visual Aesthetic)**: Maintain the existing Material 3 IDE theme while elevating typography, surface elevations, divider subtlety, and icon button consistency to match Google AI Studio's clean, minimalist toolbars.
 
 ---
 
-## 2. User Experience & Visual Design
+## 1. UI Comparison & Gap Analysis
 
-### Key User Flows
-
-#### A. Chat & Conversation Flow (ChatGPT + Google AI Studio Hybrid)
-1. **Empty / New Session State**:
-   - Clean, centered greeting with quick prompt suggestion chips and thread configuration summary.
-2. **Message Bubbles**:
-   - **User Message**: Sleek right-aligned bubble with subtle slate tint (`#F1F5F9` in light mode), clean typography, and optional media thumbnails.
-   - **Assistant Message**: Full-width or left-aligned unboxed presentation on clean canvas, featuring a markdown renderer, syntax-highlighted code blocks with quick-copy buttons, and inline math/table support.
-3. **Execution Action Pill (Post-Turn)**:
-   - Placed directly between reasoning thought blocks and the final response (or at the bottom of the assistant message).
-   - Summarizes actions: e.g., `⚡ Ran 3 tools (FileEdit, WebSearch) • 1.2k tokens • 840ms`.
-   - Tapping the pill expands a step-by-step audit card detailing each tool invocation, input arguments, and completion status.
-4. **Input Composer**:
-   - Floating rounded container with integrated `+` attachment button on the left, multi-line auto-expanding text field, voice wave mic button, and animated send arrow on the right.
-
-#### B. Gemini-Style Attachment Bottom Sheet
-- Invoked via the `+` button in the chat input bar.
-- Opens a rounded M3 bottom sheet displaying an organized 2-row grid (4 items per row) of squircle action cards:
-  - **Row 1**: Camera (`#EFF6FF`), Photos/Gallery (`#F5F3FF`), Document Files (`#ECFDF5`), GitHub Repo (`#F8FAFC`).
-  - **Row 2**: Workspace Artifacts (`#FFFBEB`), Knowledge Bits (`#FEF2F2`), Google Drive (`#F0FDF4`), Audio Settings (`#F3E8FF`).
-- Each tile features a 56dp squircle container, vibrant dual-tone icon, and clear label with tactile ripple.
-
-#### C. Workspace & Full-Screen File Explorer (Claude Artifacts Style)
-1. **Code Tab Landing**:
-   - Split into an interactive top bar (File name, Live generation indicator, Action menu: Save, Copy, Download, Server toggle, File Explorer trigger).
-   - Sub-bar with mode switcher: **View / Artifact Preview** (HTML/Markdown/SVG rendered view) vs. **Raw Editor** (monospaced syntax editor with line numbers).
-2. **Full-Screen Modern File Manager**:
-   - Tapping the folder icon opens a full-screen or large modal file manager view.
-   - **Header**: Workspace title, active branch/folder breadcrumb trail, search filter bar, and file-tree statistics (total files, size).
-   - **Directory Cards**: Folders render as expandable cards showing contained item counts, nested children with indented indentation guides, and color-coded file icons (e.g., Kotlin blue, JSON yellow, Markdown green).
-   - **Quick Action Bar**: Fast switches for New File, New Folder, and Git PRs/Issues.
-
-#### D. Elevated Bottom Navigation
-- Preserves the current layout: centered pill toggle with `Chat` and `Code` buttons, flanked by a 3-dots more-options action.
-- Upgraded with:
-  - Floating pill geometry with smooth animated indicator transition (`animateDpAsState` / `animateColorAsState`).
-  - Tactile selection states with bold typography and active tint.
-  - Safe-area bottom navigation bar padding to prevent gesture-pill collisions.
-
-### Visual Identity & Theme Tokens (Light Mode Default)
-
-| Design Token | Light Theme Value (Default) | Dark Theme Value (Fallback) | Description |
-|---|---|---|---|
-| `background` | `#F8FAFC` (Slate 50) | `#0B0F19` (Deep Navy) | App canvas background |
-| `surface` | `#FFFFFF` (Pure White) | `#131B2E` (Surface Navy) | Cards, bottom bar, sheets |
-| `surfaceVariant` | `#F1F5F9` (Slate 100) | `#1E293B` (Slate 800) | Secondary containers & pills |
-| `primary` | `#2563EB` (Blue 600) | `#60A5FA` (Blue 400) | Primary actions & active tabs |
-| `secondary` | `#475569` (Slate 600) | `#94A3B8` (Slate 400) | Supporting icons & subtext |
-| `onSurface` | `#0F172A` (Slate 900) | `#F8FAFC` (Slate 50) | Primary text (high contrast) |
-| `outline` | `#E2E8F0` (Slate 200) | `#334155` (Slate 700) | Subtle borders and dividers |
-| `accentPill` | `#DBEAFE` (Blue 100) | `#1E3A8A` (Blue 900) | Active pill background |
-
-### Motion & Haptics
-- **Bottom Navigation Transition**: Smooth crossfade slide when switching between `Chat` and `Code`.
-- **Action Trail**: Spring expansion (`spring(stiffness = Spring.StiffnessMediumLow)`) when revealing tool execution logs.
-- **Attachment Sheet**: Fluid sheet expand with staggered item alpha entry.
+| Dimension | Current App Implementation | Google AI Studio (Build UI) Standard | Planned Polish |
+| :--- | :--- | :--- | :--- |
+| **Tab Switcher** | Bottom pill labeled `Chat` and `Workspace` in `FixedBottomNav.kt`. | Segmented pill labeled `Chat` and `Code` with crisp border and smooth indicator. | Update tab label text to `Code` (retaining `AppTab.WORKSPACE` compatibility), polish pill elevation, border stroke (`outlineVariant`), and animated pill selection. |
+| **Code Header & Breadcrumb** | Standard `TopAppBar` showing just file name or "Workspace Explorer", standard action buttons. | Minimalist IDE header showing breadcrumb path (`workspace / src / ... / file.kt`), file state, and compact action icons. | Introduce sleek breadcrumb header row in `CodeScreen.kt` with subtle path tokens, file format badge, and cleaner action grouping. |
+| **File Tabs Dock** | Chrome-Android style carousel cards at bottom with rounded rectangles and `(_)` minimize tag. | Clean horizontal file tab strip with subtle border separators, file type icons, unsaved dot indicator, and hover/pressed ripples. | Polish `LazyRow` tab bar into modern IDE tab bar: clean rectangular/rounded tabs with subtle active indicator bar, consistent file-type tints, and refined close button. |
+| **Viewer Toolbar** | Chunky secondary surface row with SegmentedButtons (`View` vs `Raw`), "AI" staging button, and minimize/close icons. | Integrated editor sub-header with subtle ghost buttons, streamlined mode toggle, and compact AI prompt badge. | Refine control bar into a unified slim toolstrip with polished tonal buttons, cleaner typography, and unified padding (8dp vertical). |
+| **File Explorer** | Functional tree list with card rows, swipe-to-comment, and open-with menus. | Dense, organized file tree with subtle indentation guidelines, file extension colored badges, search bar, and clean fold chevrons. | Add subtle hierarchical guide indent lines, file type tint badges, and search/filter bar polish in `FileExplorer.kt`. |
+| **Chat Composer & Artifact Shelf** | Floating chip row above text field for staged files and comments. | Elevated staged context shelf with preview thumbnail/snippet, line number pill, and clean dismiss tag. | Enhance staged reference chips in `ChatScreen.kt` with monospaced line badges, truncated comment preview, and border accent. |
 
 ---
 
-## 3. Key Product Decisions & Trade-Offs
+## 2. GPS Protocol: Stress Test, Push Back & Trade-Offs
 
-### Decision 1: Full-Screen Tree Cards vs. Drawer Sidebar for File Explorer
-- **Chosen Approach**: Transition from the narrow 300dp right-side drawer to a full-screen, card-based modal file explorer with search and breadcrumbs.
-- **Why**: Deep directory trees and multi-level files on mobile screens suffer severe text clipping in a 300dp sidebar. A card-based full-screen layout gives breathing room for file sizes, timestamps, and quick action menus.
-- **Alternatives Considered**: Retaining the right drawer with smaller font (rejected: poor touch targets and cramped layout).
+### ⚠️ Gaslight (Technical Consequences of Bad Decisions)
+- **Over-Desktopizing Mobile Viewports**: Desktop AI Studio uses a multi-pane split view (Chat on left, File Explorer in middle-left, Code Editor in center, Preview on right). Attempting a side-by-side split on mobile screens (<420dp width) leads to extreme horizontal scrolling, truncated line wraps, unreadable code blocks, and constant accidental touches. Preserving the single-viewport toggle between Explorer and Editor is critical for mobile ergonomics.
+- **Excessive Recompositions on Tab Switching**: Rebuilding the file tree or reloading editor syntax trees on every pill tap will trigger noticeable frame drops and keyboard flickers. Polish must remain purely visual and state-preserving.
 
-### Decision 2: Google AI Studio Action Steps Location
-- **Chosen Approach**: Render a compact, collapsible action badge immediately below the thought process and above the assistant's final response text.
-- **Why**: Mirrors Google AI Studio and Anthropic Claude workflows, allowing developers to verify which tools executed and what files were read without cluttering the chat with raw JSON.
-- **Alternatives Considered**: Floating toast or separate debugger tab (rejected: disconnected from the turn context).
+### 🛡️ Push Back (Constructive Challenges)
+- **"Workspace" vs "Code" naming**: The user specifically requested: *"look like google ai studio (your) new look. But only chat and code tab."* Currently the second tab is named `Workspace`. Changing the user-facing label to `Code` strictly honors the AI Studio identity while keeping internal enums and files backwards-compatible.
+- **Top vs Bottom Tab Switcher**: Desktop AI Studio places "Chat" and "Code" at the top header or side rail. On mobile, top-screen tab switchers are ergonomic anti-patterns for single-handed use (difficult thumb reach on 6.5"+ phones). Retaining the bottom floating pill is significantly superior for mobile UX while adopting AI Studio's visual styling.
 
-### Decision 3: Preserving Fixed Bottom Navigation Geometry
-- **Chosen Approach**: Keep the pill-shaped bottom toggle bar with `Chat`, `Code`, and `More` in their current positions, but rebuild its styling with Material 3 elevation and animated indicators.
-- **Why**: Meets the user's explicit requirement ("Keeping current buttons and placement of them") while resolving visual clumsiness.
+### 🔍 Stress Test & Bias Sweep
+- **Confirmation Bias Check**: Did we verify that users editing non-code files (images, audio, PDF) aren't confused by a tab named "Code"? Yes: In Google AI Studio, the "Code" tab houses all project files and artifacts (assets, scripts, configs).
+- **Recency Bias Check**: Do not strip the recently completed Phase 16 features (Contextual Comments, Pass to AI staging basket) during the UI polish. The polish must showcase these buttons with better visual integration rather than replacing them.
 
 ---
 
-## 4. Technical Architecture & Component Hierarchy
+## 3. Surgical Implementation Phases
 
-### Component Architecture Diagram
+### Phase 1: Tab Switcher & Navigation Polish (`FixedBottomNav.kt`)
+- Rename display label `Workspace` -> `Code` in `TabButton`.
+- Refine pill container styling:
+  - Match Google AI Studio's subtle border (`outlineVariant.copy(alpha = 0.35f)`).
+  - Background styling: `surfaceContainer` with refined tonal elevation.
+  - Active tab indicator: Pill container with high-contrast label and smooth spring animation.
+  - Preserve 3-dots more menu strictly in place.
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                              OmniRootApp                               │
-│  (Theme: Light Default • WindowInsets: statusBars + navigationBars)     │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-           ┌────────────────────────┴────────────────────────┐
-           ▼                                                 ▼
-┌───────────────────────┐                         ┌───────────────────────┐
-│     GlobalSidebar     │                         │    Scaffold Host      │
-│  - Workspace switcher │                         │  - Content viewport   │
-│  - Pinned threads     │                         │  - FixedBottomNav     │
-│  - Knowledge bits     │                         │  - Floating Log FAB   │
-└───────────────────────┘                         └───────────┬───────────┘
-                                                              │
-                     ┌────────────────────────────────────────┴─────────┐
-                     ▼                                                  ▼
-     ┌───────────────────────────────┐                  ┌───────────────────────────────┐
-     │          ChatScreen           │                  │          CodeScreen           │
-     │ - Message list (LazyColumn)   │                  │ - Editor & Preview TopAppBar  │
-     │ - ThoughtBubble (Collapsible) │                  │ - Artifact View / Raw Switch  │
-     │ - ActionStepsPill (AI Studio) │                  │ - CodeEditor & Live Streamer  │
-     │ - InputComposer (Floating)    │                  │ - Fullscreen File Explorer    │
-     │ - AttachmentSheet (Gemini)    │                  │   • Breadcrumbs & Search Bar  │
-     └───────────────────────────────┘                  │   • Collapsible Tree Cards    │
-                                                        │   • File Type Badges & Actions│
-                                                        └───────────────────────────────┘
-```
+### Phase 2: Code Screen Header & Breadcrumb Bar (`CodeScreen.kt`)
+- Refine `TopAppBar`:
+  - Show breadcrumb navigation (e.g. `workspace / app / src / ... / MainActivity.kt`) when a file is open.
+  - Compact right-side action buttons: Save (`Icons.Default.Save`), Copy (`Icons.Default.ContentCopy`), Download, and Toggle Explorer with consistent 40dp touch targets.
+  - Refine sub-header toolbar: Mode switcher (`View` / `Raw`), AI Staging button (`@artifact`), and Comment button (`AddComment`) with clean unified styling.
 
-### Component Breakdown & Module Targets
+### Phase 3: File Tab Dock Polish (`CodeScreen.kt`)
+- Refine bottom open-files carousel:
+  - Transition from chunky floating cards to modern IDE-style tab strip.
+  - Active tab highlight: subtle bottom accent line or container elevation matching Google AI Studio IDE tabs.
+  - Clean close 'x' icon (`Icons.Default.Close`) with generous touch padding.
+  - Dirty/unsaved indicator dot when local edits are unsaved.
 
-1. **`MyApplicationTheme` (`Theme.kt`)**:
-   - Ensure Light theme is strictly initialized as the default scheme.
-   - Refine color tokens (`surfaceVariant`, `outline`, `primaryContainer`, `onSurface`) for higher contrast and slate-toned minimalism.
+### Phase 4: File Explorer Hierarchy Polish (`FileExplorer.kt`)
+- Elevate file list items:
+  - Clear indentation guides for nested directories.
+  - File extension color accent dots (e.g. Kotlin = purple, XML = orange, JSON/MD = cyan).
+  - Clean folder collapse/expand chevron arrows (`Icons.Default.ChevronRight` / `ExpandMore`).
+  - Retain the right-swipe comment action and context menus.
 
-2. **`FixedBottomNav.kt`**:
-   - Upgrade pill container with smooth rounded styling, border stroke (`#E2E8F0`), and animated tab indicator.
-   - Ensure `navigationBarsPadding()` is properly applied to prevent gesture navigation interference.
-
-3. **`AttachmentPickerBottomSheet.kt`**:
-   - Rebuild layout using a 4-column x 2-row `LazyVerticalGrid` / `Row` configuration.
-   - Render squircle tiles (56dp x 56dp) with rounded corners (16dp), pastel tint backgrounds, and concise labels.
-
-4. **`ActionStepsPill.kt` (New Component in `com.example.ui.chat`)**:
-   - Collapsible chip displaying tool execution summary (e.g., `⚡ 2 actions executed • 1.4k tokens`).
-   - Expanded state shows sequential step cards: tool name, execution status badge, input summary, and elapsed time.
-
-5. **`FileExplorer.kt` & `CodeScreen.kt`**:
-   - Refactor file explorer into a spacious, full-screen card-based view with breadcrumbs, real-time search, file-type icons, and collapsible folder cards.
-   - Retain Claude-style Artifact viewer controls (View vs. Raw Edit) in the sub-bar.
+### Phase 5: Verification & Safety Scan
+- Proactive compilation check via `compile_applet`.
+- Silent security scan for credentials and keystores.
+- On-device verification flow documentation.
 
 ---
 
-## 5. Implementation Roadmap (Phased Execution)
+## 4. Exact Files Touched (Surgical Scope)
 
-- **Phase A**: Refine Light Theme tokens & modernize `FixedBottomNav` pill toggle.
-- **Phase B**: Implement `ActionStepsPill` in `ChatScreen` for Google AI Studio execution trails.
-- **Phase C**: Redesign `AttachmentPickerBottomSheet` into Gemini 2-row squircle grid.
-- **Phase D**: Overhaul `FileExplorer` into full-screen collapsible tree cards with breadcrumbs and type badges.
-- **Phase E**: Compilation verification, receipts audit logging, and on-device testing guide.
+1. `app/src/main/java/com/example/ui/bottomnav/FixedBottomNav.kt`
+   - Tab label update to "Code", pill aesthetic refinement.
+2. `app/src/main/java/com/example/ui/code/CodeScreen.kt`
+   - Breadcrumb header, sub-header action strip, and bottom file tab dock styling.
+3. `app/src/main/java/com/example/ui/code/FileExplorer.kt`
+   - Visual polish of tree item rows, hierarchy guides, and badges.
+4. `current plan/BLUEPRINT.md` & `receipts/RECEIPTS_118.md`
+   - Audit trail and blueprint update.

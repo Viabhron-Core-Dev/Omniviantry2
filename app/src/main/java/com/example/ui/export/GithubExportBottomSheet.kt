@@ -17,8 +17,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.engine.export.HardenedExportManager
+import com.example.engine.export.WorkspaceArchiveManager
 import com.example.engine.fs.LocalFileManager
+import com.example.ui.settings.DatabaseSecurityDialog
 import com.example.utils.LogKeeper
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Security
+import kotlinx.coroutines.launch
 
 data class ChangedFile(val path: String, val status: String)
 
@@ -26,8 +31,11 @@ data class ChangedFile(val path: String, val status: String)
 @Composable
 fun GithubExportBottomSheet(onDismiss: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var commitMessage by remember { mutableStateOf("") }
+    var isArchiving by remember { mutableStateOf(false) }
+    var showSecurityDialog by remember { mutableStateOf(false) }
     
     val currentWs = remember { LocalFileManager.getWorkspaceDir().name }
     val safeFiles = remember(currentWs) {
@@ -77,8 +85,13 @@ fun GithubExportBottomSheet(onDismiss: () -> Unit) {
                         )
                     }
                 }
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Close")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { showSecurityDialog = true }) {
+                        Icon(Icons.Default.Security, contentDescription = "Security Audit", tint = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Close")
+                    }
                 }
             }
 
@@ -226,12 +239,58 @@ fun GithubExportBottomSheet(onDismiss: () -> Unit) {
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp),
+                    .padding(bottom = 8.dp),
                 enabled = commitMessage.isNotBlank(),
                 shape = RoundedCornerShape(24.dp)
             ) {
                 Text("Stage & Push Clean Code (Zero Secrets)")
             }
+
+            // Cloud & Drive Archive Action
+            OutlinedButton(
+                onClick = {
+                    isArchiving = true
+                    coroutineScope.launch {
+                        val result = WorkspaceArchiveManager.createHardenedArchive(
+                            context = context,
+                            workspaceDir = LocalFileManager.getWorkspaceDir()
+                        )
+                        isArchiving = false
+                        if (result.success && result.archiveFile != null) {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Cloud archive created: ${result.archiveFile.name} (${result.fileCount} files, 0 secrets verified)",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Archive failed: ${result.errorMessage}",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                enabled = !isArchiving,
+                shape = RoundedCornerShape(24.dp)
+            ) {
+                if (isArchiving) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Creating Sealed Archive...")
+                } else {
+                    Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Export Hardened Drive / Cloud Archive (.zip)")
+                }
+            }
         }
+    }
+
+    if (showSecurityDialog) {
+        DatabaseSecurityDialog(onDismiss = { showSecurityDialog = false })
     }
 }

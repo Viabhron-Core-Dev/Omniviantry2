@@ -54,6 +54,7 @@ fun PptViewer(
     val context = LocalContext.current
     var slides by remember { mutableStateOf<List<SlideItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var activeCommentRef by remember { mutableStateOf<StagedReference?>(null) }
 
     LaunchedEffect(file) {
         isLoading = true
@@ -170,7 +171,29 @@ fun PptViewer(
                         ) {
                             Icon(Icons.Default.BookmarkAdd, contentDescription = null, modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Mark to AI", fontSize = 11.sp)
+                            Text("Mark", fontSize = 11.sp)
+                        }
+
+                        Spacer(Modifier.width(4.dp))
+
+                        FilledTonalButton(
+                            onClick = {
+                                val currentSlide = slides.getOrNull(pagerState.currentPage)
+                                if (currentSlide != null) {
+                                    activeCommentRef = StagedReference.PresentationSlide(
+                                        file = file,
+                                        slideIndex = pagerState.currentPage,
+                                        slideTitle = currentSlide.title
+                                    )
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Icon(Icons.Default.AddComment, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Comment", fontSize = 11.sp)
                         }
                     }
 
@@ -186,6 +209,13 @@ fun PptViewer(
                     }
                 }
             }
+        }
+
+        if (activeCommentRef != null) {
+            ArtifactCommentBottomSheet(
+                reference = activeCommentRef!!,
+                onDismiss = { activeCommentRef = null }
+            )
         }
     }
 }

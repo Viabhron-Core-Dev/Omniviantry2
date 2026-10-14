@@ -18,15 +18,20 @@ import com.example.utils.LogKeeper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * WebAiCustomTabManager coordinates Chrome Custom Tabs connections,
- * session warmup, URL pre-rendering, and builds custom RemoteViews
- * bottom toolbars with interactive tab-switching bubbles, close targets,
- * and a quick add [+] button.
+ * session warmup, URL pre-rendering, and manages active Web AI browser tabs
+ * with zero-overhead on-device persistence.
  */
 object WebAiCustomTabManager {
     private const val TAG = "WebAiCustomTabManager"
+
+    private const val PREFS_NAME = "web_ai_provider_prefs"
+    private const val KEY_PERSISTED_TABS = "key_persisted_active_tabs"
+    private const val KEY_PERSISTED_CURRENT_ID = "key_persisted_current_tab_id"
 
     const val ACTION_SWITCH_TAB = "com.example.ACTION_CUSTOM_TAB_SWITCH"
     const val ACTION_CLOSE_TAB = "com.example.ACTION_CUSTOM_TAB_CLOSE"
@@ -44,6 +49,76 @@ object WebAiCustomTabManager {
 
     private val _currentTabId = MutableStateFlow<String?>(null)
     val currentTabId: StateFlow<String?> = _currentTabId.asStateFlow()
+
+    private var isInitialized = false
+
+    /**
+     * Rehydrates persisted open tabs from SharedPreferences without background processes.
+     */
+    fun init(context: Context) {
+        if (isInitialized) return
+        isInitialized = true
+        try {
+            val sp = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val jsonStr = sp.getString(KEY_PERSISTED_TABS, null)
+            if (!jsonStr.isNullOrBlank()) {
+                val array = JSONArray(jsonStr)
+                val list = mutableListOf<WebAiActiveTab>()
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    list.add(
+                        WebAiActiveTab(
+                            id = obj.getString("id"),
+                            serviceId = obj.getString("serviceId"),
+                            serviceName = obj.getString("serviceName"),
+                            brandColorHex = obj.optString("brandColorHex", "#1A73E8"),
+                            url = obj.getString("url"),
+                            sessionMode = runCatching {
+                                WebAiSessionMode.valueOf(obj.optString("sessionMode", "DEFAULT"))
+                            }.getOrDefault(WebAiSessionMode.DEFAULT),
+                            profileLabel = obj.optString("profileLabel", "Default"),
+                            targetPackage = if (obj.has("targetPackage") && !obj.isNull("targetPackage")) obj.getString("targetPackage") else null,
+                            isCurrent = obj.optBoolean("isCurrent", false)
+                        )
+                    )
+                }
+                val curId = sp.getString(KEY_PERSISTED_CURRENT_ID, list.firstOrNull()?.id)
+                _activeTabs.value = list
+                _currentTabId.value = curId
+                WebAiProviderManager.updateOpenTabCount(list.size)
+                LogKeeper.log("INFO", TAG, "Restored ${list.size} persisted active tabs.")
+            }
+        } catch (e: Exception) {
+            LogKeeper.log("WARNING", TAG, "Failed to restore active tabs: ${e.message}")
+        }
+    }
+
+    private fun persistTabs(context: Context, tabs: List<WebAiActiveTab>, currentId: String?) {
+        try {
+            val sp = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val array = JSONArray()
+            for (t in tabs) {
+                val obj = JSONObject().apply {
+                    put("id", t.id)
+                    put("serviceId", t.serviceId)
+                    put("serviceName", t.serviceName)
+                    put("brandColorHex", t.brandColorHex)
+                    put("url", t.url)
+                    put("sessionMode", t.sessionMode.name)
+                    put("profileLabel", t.profileLabel)
+                    if (t.targetPackage != null) put("targetPackage", t.targetPackage)
+                    put("isCurrent", t.isCurrent)
+                }
+                array.put(obj)
+            }
+            sp.edit()
+                .putString(KEY_PERSISTED_TABS, array.toString())
+                .putString(KEY_PERSISTED_CURRENT_ID, currentId)
+                .apply()
+        } catch (e: Exception) {
+            LogKeeper.log("WARNING", TAG, "Failed to persist active tabs: ${e.message}")
+        }
+    }
 
     private val connection = object : CustomTabsServiceConnection() {
         override fun onCustomTabsServiceConnected(name: ComponentName, client: CustomTabsClient) {
@@ -134,15 +209,84 @@ object WebAiCustomTabManager {
     }
 
     /**
-     * Launches a multi-tab session or single service via Custom Tabs with bottom strip.
+     * Helper to launch a tab within Custom Tabs if available, falling back gracefully to browser Intent.
+     */
+    private fun launchTabInCustomTabsOrBrowser(context: Context, tab: WebAiActiveTab) {
+        // Suspend heavy on-device processes (GGUF llama.cpp inference, media players, bitmap caches)
+        // to maximize free RAM headroom and prevent Android LMK process termination
+        try {
+            com.example.engine.lifecycle.HeavyTaskThrottler.suspendHeavyTasks(context)
+        } catch (_: Exception) {}
+
+        val targetBrowserPkg = resolveTargetBrowserPackage(context)
+        val targetPackage = if (tab.sessionMode == WebAiSessionMode.CUSTOM_BROWSER && !tab.targetPackage.isNullOrBlank()) {
+            tab.targetPackage
+        } else {
+            targetBrowserPkg
+        }
+
+        val session = customTabsSession ?: customTabsClient?.newSession(CustomTabsCallback())
+        val builder = session?.let { CustomTabsIntent.Builder(it) } ?: CustomTabsIntent.Builder()
+        builder.setShowTitle(true)
+        builder.setUrlBarHidingEnabled(true)
+        builder.setShareState(CustomTabsIntent.SHARE_STATE_OFF)
+
+        val intent = builder.build()
+        if (!targetPackage.isNullOrBlank()) {
+            intent.intent.setPackage(targetPackage)
+        }
+
+        if (tab.sessionMode == WebAiSessionMode.EPHEMERAL) {
+            intent.intent.putExtra("org.mozilla.firefox.PRIVATE_BROWSING", true)
+            intent.intent.putExtra("private_browsing_mode", true)
+            intent.intent.putExtra("com.google.android.apps.chrome.EXTRA_OPEN_NEW_INCOGNITO_TAB", true)
+            intent.intent.putExtra("org.chromium.chrome.browser.customtabs.EXTRA_ENABLE_EPHEMERAL_BROWSING", true)
+        }
+
+        intent.intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+
+        try {
+            intent.launchUrl(context, Uri.parse(tab.url))
+            LogKeeper.log("INFO", TAG, "Launched Custom Tabs session ($targetPackage) for ${tab.serviceName}")
+        } catch (e: Exception) {
+            LogKeeper.log("WARNING", TAG, "Custom Tabs launch failed, falling back to Intent.ACTION_VIEW: ${e.message}")
+            val fallbackIntent = Intent(Intent.ACTION_VIEW, Uri.parse(tab.url)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                if (!targetPackage.isNullOrBlank()) {
+                    setPackage(targetPackage)
+                }
+                if (tab.sessionMode == WebAiSessionMode.EPHEMERAL) {
+                    putExtra("org.mozilla.firefox.PRIVATE_BROWSING", true)
+                    putExtra("private_browsing_mode", true)
+                    putExtra("com.google.android.apps.chrome.EXTRA_OPEN_NEW_INCOGNITO_TAB", true)
+                    putExtra("org.chromium.chrome.browser.customtabs.EXTRA_ENABLE_EPHEMERAL_BROWSING", true)
+                }
+            }
+            try {
+                context.startActivity(fallbackIntent)
+            } catch (_: Exception) {
+                fallbackIntent.setPackage(null)
+                context.startActivity(fallbackIntent)
+            }
+        }
+        WebAiProviderManager.recordActiveLaunch(tab.serviceName, tab.url)
+    }
+
+    /**
+     * Launches a multi-tab session or single service via Custom Tabs, preserving and merging
+     * with existing active tabs rather than replacing them.
      */
     fun launchSession(context: Context, servicesToLaunch: List<WebAiService>) {
         if (servicesToLaunch.isEmpty()) return
 
+        if (!isInitialized) {
+            init(context)
+        }
+
         bindCustomTabsService(context)
 
-        // Build active tab list
-        val newTabs = servicesToLaunch.mapIndexed { index, svc ->
+        // Build active tab list for incoming services
+        val incomingTabs = servicesToLaunch.mapIndexed { index, svc ->
             val activeProf = svc.profiles.firstOrNull { it.id == svc.activeProfileId }
                 ?: svc.profiles.firstOrNull()
             val url = activeProf?.launchUrl?.ifBlank { svc.baseUrl } ?: svc.baseUrl
@@ -159,86 +303,39 @@ object WebAiCustomTabManager {
             )
         }
 
-        _activeTabs.value = newTabs
-        val firstTab = newTabs.first()
-        _currentTabId.value = firstTab.id
+        // Merge incoming tabs with existing active tabs to preserve user sessions
+        val currentTabs = _activeTabs.value
+        val mergedTabs = mutableListOf<WebAiActiveTab>()
+        for (existing in currentTabs) {
+            val isBeingReplaced = incomingTabs.any { it.id == existing.id || (it.serviceId == existing.serviceId && it.profileLabel == existing.profileLabel) }
+            if (!isBeingReplaced) {
+                mergedTabs.add(existing.copy(isCurrent = false))
+            }
+        }
+        mergedTabs.addAll(incomingTabs)
+
+        val firstTab = incomingTabs.first()
+        val targetTabId = firstTab.id
 
         // Pre-warm the rest
-        if (newTabs.size > 1) {
-            for (t in newTabs.drop(1)) {
+        if (mergedTabs.size > 1) {
+            for (t in mergedTabs.filter { it.id != targetTabId }) {
                 warmupAndMayLaunch(t.url)
             }
         }
 
-        // Build Custom Tabs Intent
-        val session = customTabsSession ?: customTabsClient?.newSession(CustomTabsCallback())
-        val builder = session?.let { CustomTabsIntent.Builder(it) } ?: CustomTabsIntent.Builder()
-
-        builder.setShowTitle(true)
-        builder.setUrlBarHidingEnabled(true)
-        builder.setShareState(CustomTabsIntent.SHARE_STATE_OFF)
-
-        // RemoteViews Bottom Toolbar Strip
-        val remoteViews = buildBottomStripRemoteViews(context, newTabs, firstTab.id)
-        val clickableIds = getClickableIdsForTabs(newTabs.size)
-        val pendingIntent = createBroadcastPendingIntent(context)
-
-        builder.setSecondaryToolbarViews(remoteViews, clickableIds, pendingIntent)
-
-        val intent = builder.build()
-
-        // Resolve browser package: custom profile override, or default preferred browser (Firefox)
-        val targetBrowserPkg = resolveTargetBrowserPackage(context)
-        val targetPackage = if (firstTab.sessionMode == WebAiSessionMode.CUSTOM_BROWSER && !firstTab.targetPackage.isNullOrBlank()) {
-            firstTab.targetPackage
-        } else {
-            targetBrowserPkg
-        }
-
-        if (!targetPackage.isNullOrBlank()) {
-            intent.intent.setPackage(targetPackage)
-        }
-
-        // Ephemeral / Incognito check for first tab
-        if (firstTab.sessionMode == WebAiSessionMode.EPHEMERAL) {
-            // Firefox private browsing flags
-            intent.intent.putExtra("org.mozilla.firefox.PRIVATE_BROWSING", true)
-            intent.intent.putExtra("private_browsing_mode", true)
-            // Chrome / Chromium private browsing flags
-            intent.intent.putExtra("com.google.android.apps.chrome.EXTRA_OPEN_NEW_INCOGNITO_TAB", true)
-            intent.intent.putExtra("org.chromium.chrome.browser.customtabs.EXTRA_ENABLE_EPHEMERAL_BROWSING", true)
-        }
-
-        intent.intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-
-        try {
-            intent.launchUrl(context, Uri.parse(firstTab.url))
-            WebAiProviderManager.recordActiveLaunch(firstTab.serviceName, firstTab.url)
-            WebAiProviderManager.updateOpenTabCount(newTabs.size)
-            LogKeeper.log("INFO", TAG, "Launched Custom Tabs session ($targetPackage) with ${newTabs.size} tabs. Active: ${firstTab.serviceName}")
-        } catch (e: Exception) {
-            LogKeeper.log("WARNING", TAG, "Custom Tabs launch failed, falling back to Intent.ACTION_VIEW: ${e.message}")
-            val fallbackIntent = Intent(Intent.ACTION_VIEW, Uri.parse(firstTab.url)).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                if (!targetPackage.isNullOrBlank()) {
-                    setPackage(targetPackage)
-                }
-            }
-            try {
-                context.startActivity(fallbackIntent)
-            } catch (err: Exception) {
-                fallbackIntent.setPackage(null)
-                context.startActivity(fallbackIntent)
-            }
-        }
+        updateActiveTabs(mergedTabs, targetTabId, context)
+        launchTabInCustomTabsOrBrowser(context, firstTab)
     }
 
     /**
      * Appends a new tab to an active or backgrounded session and immediately switches to it.
      */
     fun appendAndSwitchTab(context: Context, newTab: WebAiActiveTab) {
+        if (!isInitialized) {
+            init(context)
+        }
         val currentTabs = _activeTabs.value.toMutableList()
-        // Check if tab with same ID or URL already exists
         val existingIndex = currentTabs.indexOfFirst { it.id == newTab.id || (it.serviceId == newTab.serviceId && it.profileLabel == newTab.profileLabel) }
         val updatedTabs: List<WebAiActiveTab>
         val activeId: String
@@ -253,36 +350,54 @@ object WebAiCustomTabManager {
             updatedTabs = deact + newTab.copy(isCurrent = true)
         }
 
-        updateActiveTabs(updatedTabs, activeId)
-        refreshCustomTabsToolbar(context)
+        updateActiveTabs(updatedTabs, activeId, context)
 
-        // Switch to the newly appended tab in the Custom Tab or Browser
         val targetTab = updatedTabs.first { it.id == activeId }
-        val targetPkg = if (targetTab.sessionMode == WebAiSessionMode.CUSTOM_BROWSER && !targetTab.targetPackage.isNullOrBlank()) {
-            targetTab.targetPackage
-        } else {
-            resolveTargetBrowserPackage(context)
-        }
-        val navIntent = Intent(Intent.ACTION_VIEW, Uri.parse(targetTab.url)).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            if (!targetPkg.isNullOrBlank()) {
-                setPackage(targetPkg)
-            }
-            if (targetTab.sessionMode == WebAiSessionMode.EPHEMERAL) {
-                putExtra("org.mozilla.firefox.PRIVATE_BROWSING", true)
-                putExtra("private_browsing_mode", true)
-                putExtra("com.google.android.apps.chrome.EXTRA_OPEN_NEW_INCOGNITO_TAB", true)
-                putExtra("org.chromium.chrome.browser.customtabs.EXTRA_ENABLE_EPHEMERAL_BROWSING", true)
-            }
-        }
-        try {
-            context.startActivity(navIntent)
-        } catch (_: Exception) {
-            navIntent.setPackage(null)
-            context.startActivity(navIntent)
-        }
-        WebAiProviderManager.recordActiveLaunch(targetTab.serviceName, targetTab.url)
+        launchTabInCustomTabsOrBrowser(context, targetTab)
         LogKeeper.log("INFO", TAG, "Appended and switched to tab: ${targetTab.serviceName} (${targetTab.profileLabel})")
+    }
+
+    /**
+     * Switches to an existing tab from the folded list in GlobalSidebar using Custom Tabs.
+     */
+    fun switchToTab(context: Context, tabId: String) {
+        if (!isInitialized) {
+            init(context)
+        }
+        val currentTabs = _activeTabs.value
+        val targetTab = currentTabs.firstOrNull { it.id == tabId } ?: return
+        val updatedTabs = currentTabs.map { it.copy(isCurrent = it.id == tabId) }
+        updateActiveTabs(updatedTabs, tabId, context)
+
+        launchTabInCustomTabsOrBrowser(context, targetTab)
+        LogKeeper.log("INFO", TAG, "Switched active tab to: ${targetTab.serviceName} (${targetTab.profileLabel})")
+    }
+
+    /**
+     * Closes an individual tab from the folded list in GlobalSidebar.
+     */
+    fun closeTab(context: Context, tabId: String) {
+        if (!isInitialized) {
+            init(context)
+        }
+        val currentTabs = _activeTabs.value
+        val remaining = currentTabs.filter { it.id != tabId }
+        val currentId = _currentTabId.value
+        val nextId = if (currentId == tabId) remaining.firstOrNull()?.id else currentId
+        val updated = remaining.map { it.copy(isCurrent = it.id == nextId) }
+        updateActiveTabs(updated, nextId, context)
+        LogKeeper.log("INFO", TAG, "Closed tab: $tabId. Remaining: ${remaining.size}")
+    }
+
+    /**
+     * Closes all active tabs from the top close button in GlobalSidebar.
+     */
+    fun closeAllTabs(context: Context) {
+        if (!isInitialized) {
+            init(context)
+        }
+        updateActiveTabs(emptyList(), null, context)
+        LogKeeper.log("INFO", TAG, "Closed all tabs.")
     }
 
     /**
@@ -371,28 +486,21 @@ object WebAiCustomTabManager {
         return views
     }
 
-    fun updateActiveTabs(newTabs: List<WebAiActiveTab>, currentId: String?) {
+    fun updateActiveTabs(newTabs: List<WebAiActiveTab>, currentId: String?, context: Context? = null) {
         _activeTabs.value = newTabs
         _currentTabId.value = currentId
         WebAiProviderManager.updateOpenTabCount(newTabs.size)
+        if (context != null) {
+            persistTabs(context, newTabs, currentId)
+        }
     }
 
     /**
-     * Refreshes the secondary toolbar on the running Custom Tab session.
+     * Secondary toolbar on running Custom Tab session is removed in favor of
+     * the native folded tab list in the Global Sidebar.
      */
     fun refreshCustomTabsToolbar(context: Context) {
-        val session = customTabsSession ?: return
-        val currentTabs = _activeTabs.value
-        val currentId = _currentTabId.value
-        val remoteViews = buildBottomStripRemoteViews(context, currentTabs, currentId)
-        val clickableIds = getClickableIdsForTabs(currentTabs.size)
-        val pendingIntent = createBroadcastPendingIntent(context)
-
-        try {
-            session.setSecondaryToolbarViews(remoteViews, clickableIds, pendingIntent)
-        } catch (e: Exception) {
-            LogKeeper.log("WARNING", TAG, "setSecondaryToolbarViews failed: ${e.message}")
-        }
+        // No-op: secondary toolbar strip replaced by native sidebar folded tab manager
     }
 
     private fun getClickableIdsForTabs(tabCount: Int): IntArray {

@@ -28,6 +28,7 @@ class CodeEditorState {
         val file = currentFile ?: return
         FileHistoryEngine.saveRevision(file) // save to history before overwrite
         file.writeText(content.text)
+        WorkspaceChatBridge.recordFileEdit(file, "Manual Editor")
     }
 }
 

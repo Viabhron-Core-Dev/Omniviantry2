@@ -1,5 +1,10 @@
 package com.example.ui.sidebar
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -9,9 +14,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -19,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.engine.fs.LocalFileManager
 import com.example.engine.lifecycle.HeavyTaskThrottler
+import com.example.engine.webaiprovider.WebAiCustomTabManager
 import com.example.engine.webaiprovider.WebAiProviderManager
 import java.io.File
 import kotlinx.coroutines.launch
@@ -37,9 +45,17 @@ fun GlobalSidebar(
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val openTabCount by WebAiProviderManager.openTabCount.collectAsState()
+    val activeTabs by WebAiCustomTabManager.activeTabs.collectAsState()
+    val currentTabId by WebAiCustomTabManager.currentTabId.collectAsState()
+    var isWebAiFolded by rememberSaveable { mutableStateOf(true) }
     var workspaces by remember { mutableStateOf(emptyList<File>()) }
     var showKnowledgeBitsSheet by remember { mutableStateOf(false) }
     var showMemoryScreen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        WebAiProviderManager.init(context)
+        WebAiCustomTabManager.init(context)
+    }
     
     LaunchedEffect(currentChatId, onClose) { // Trigger reload when sidebar opens or chat changes
         workspaces = LocalFileManager.getWorkspaces()
@@ -147,73 +163,269 @@ fun GlobalSidebar(
                         containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                     ),
                     onClick = {
-                        HeavyTaskThrottler.suspendHeavyTasks(context)
-                        onNavigateToWebAiPortal()
-                        onClose()
+                        if (activeTabs.isEmpty()) {
+                            HeavyTaskThrottler.suspendHeavyTasks(context)
+                            onNavigateToWebAiPortal()
+                            onClose()
+                        } else {
+                            isWebAiFolded = !isWebAiFolded
+                        }
                     }
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Main Header Row
+                        Row(
                             modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                Icons.Default.Public,
-                                contentDescription = "Web AI Hub",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    "Web AI Hub",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    "PINNED",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                                        .padding(horizontal = 4.dp, vertical = 1.dp)
-                                )
-                            }
-                            Text(
-                                "Multi-browser session",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1
-                            )
-                        }
-                        if (openTabCount > 0) {
-                            Badge(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text("$openTabCount", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Icon(
+                                    Icons.Default.Public,
+                                    contentDescription = "Web AI Hub",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(22.dp)
+                                )
                             }
-                        } else {
-                            Icon(
-                                Icons.Default.ChevronRight,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.size(18.dp)
-                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "Web AI Hub",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        "PINNED",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                                Text(
+                                    if (activeTabs.isEmpty()) {
+                                        "Launch web AI provider"
+                                    } else if (isWebAiFolded) {
+                                        "${activeTabs.size} open browser tab${if (activeTabs.size > 1) "s" else ""}"
+                                    } else {
+                                        "Tap tab to jump • ✕ to close"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
+                                )
+                            }
+
+                            if (activeTabs.isNotEmpty()) {
+                                Badge(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                ) {
+                                    Text("${activeTabs.size}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = if (isWebAiFolded) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+                                    contentDescription = if (isWebAiFolded) "Expand open tabs" else "Collapse open tabs",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Default.ChevronRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        // Unfolded List of Active Tabs
+                        AnimatedVisibility(
+                            visible = !isWebAiFolded && activeTabs.isNotEmpty(),
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                                    thickness = 0.8.dp,
+                                    modifier = Modifier.padding(bottom = 6.dp)
+                                )
+
+                                // Action header row: "OPEN TABS (N)" + [+] add + [✕] close all
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        "OPEN TABS (${activeTabs.size})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        letterSpacing = 0.5.sp
+                                    )
+
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // [+] Launch / Add more from portal
+                                        IconButton(
+                                            onClick = {
+                                                HeavyTaskThrottler.suspendHeavyTasks(context)
+                                                onNavigateToWebAiPortal()
+                                                onClose()
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Add,
+                                                contentDescription = "Add new AI tab",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+
+                                        Spacer(Modifier.width(4.dp))
+
+                                        // [✕] Close All tabs button at the top
+                                        IconButton(
+                                            onClick = {
+                                                WebAiCustomTabManager.closeAllTabs(context)
+                                                isWebAiFolded = true
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Close,
+                                                contentDescription = "Close all tabs",
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(Modifier.height(4.dp))
+
+                                // Individual Tab Rows
+                                activeTabs.forEach { tab ->
+                                    val isCurrent = tab.id == currentTabId
+                                    val tabColor = remember(tab.brandColorHex) {
+                                        try {
+                                            Color(android.graphics.Color.parseColor(tab.brandColorHex))
+                                        } catch (_: Exception) {
+                                            Color(0xFF1A73E8)
+                                        }
+                                    }
+
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 3.dp),
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (isCurrent) {
+                                            MaterialTheme.colorScheme.surfaceContainerHighest
+                                        } else {
+                                            MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                                        },
+                                        tonalElevation = if (isCurrent) 2.dp else 0.dp,
+                                        onClick = {
+                                            WebAiCustomTabManager.switchToTab(context, tab.id)
+                                            onClose()
+                                        }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            // Brand color pill / circle with initial
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(24.dp)
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(tabColor),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    tab.serviceName.take(1).uppercase(),
+                                                    color = Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+
+                                            Spacer(Modifier.width(10.dp))
+
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        tab.serviceName,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        maxLines = 1
+                                                    )
+                                                    if (isCurrent) {
+                                                        Spacer(Modifier.width(6.dp))
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(6.dp)
+                                                                .clip(RoundedCornerShape(3.dp))
+                                                                .background(MaterialTheme.colorScheme.primary)
+                                                        )
+                                                    }
+                                                }
+                                                if (tab.profileLabel.isNotBlank() && tab.profileLabel != "Default") {
+                                                    Text(
+                                                        tab.profileLabel,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1
+                                                    )
+                                                }
+                                            }
+
+                                            // Cross beside name to close this specific tab
+                                            IconButton(
+                                                onClick = {
+                                                    WebAiCustomTabManager.closeTab(context, tab.id)
+                                                },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Close,
+                                                    contentDescription = "Close ${tab.serviceName} tab",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Spacer(Modifier.height(4.dp))
+                            }
                         }
                     }
                 }

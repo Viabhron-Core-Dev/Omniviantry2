@@ -25,13 +25,28 @@ data class ContextBudgetReport(
     val isTruncated: Boolean,
     val preservedMessageCount: Int,
     val prunedMessageCount: Int,
+    val breakdown: ContextBudgetBreakdown? = null,
     val warnings: List<String> = emptyList()
 )
 
 /**
- * Mini-Phase 11.1: Context Window Compressor & Token Budget Engine.
- * Accurately estimates token usage, manages memory budgets, and prevents 400/429
- * Context Window Exceeded exceptions across Cloud and Local LLMs.
+ * High-resolution segmented breakdown of the active context budget.
+ */
+data class ContextBudgetBreakdown(
+    val modelName: String,
+    val totalLimit: Int,
+    val systemAndRulesTokens: Int,
+    val rollingSummaryTokens: Int,
+    val activeMessagesTokens: Int,
+    val reservedHeadroomTokens: Int,
+    val totalUsedTokens: Int,
+    val usagePercentage: Float
+)
+
+/**
+ * Mini-Phase 11.1 & Phase 14: Dynamic Context Window Compressor & Token Budget Engine.
+ * Accurately estimates token usage, enforces dynamic model-specific profiles, and eliminates
+ * context drift across Cloud APIs and Local GGUF models.
  */
 object ContextBudgetManager {
 
@@ -53,7 +68,7 @@ object ContextBudgetManager {
         "o1" to ModelContextProfile("o1", 200_000, 100_000),
         "o3-mini" to ModelContextProfile("o3-mini", 200_000, 100_000),
 
-        // DeepSeek & Groq / OpenRouter
+        // DeepSeek & OpenRouter
         "deepseek-r1" to ModelContextProfile("deepseek-r1", 64_000, 8192),
         "deepseek-v3" to ModelContextProfile("deepseek-v3", 64_000, 8192),
         "llama-3.3-70b-versatile" to ModelContextProfile("llama-3.3-70b-versatile", 128_000, 8192),
@@ -63,19 +78,34 @@ object ContextBudgetManager {
         "local-default" to ModelContextProfile("local-default", 4096, 2048, targetHeadroomTokens = 512, isLocalGguf = true)
     )
 
-    fun getProfileForModel(modelName: String): ModelContextProfile {
+    fun getProfileForModel(modelName: String, localContextOverride: Int? = null): ModelContextProfile {
         val lower = modelName.lowercase()
-        for ((key, profile) in MODEL_PROFILES) {
-            if (lower.contains(key)) return profile
-        }
-        return when {
+        val baseProfile = when {
             lower.contains("gemini") -> ModelContextProfile(modelName, 1_000_000, 8192)
             lower.contains("claude") -> ModelContextProfile(modelName, 200_000, 8192)
             lower.contains("gpt-4") -> ModelContextProfile(modelName, 128_000, 4096)
             lower.contains("deepseek") -> ModelContextProfile(modelName, 64_000, 8192)
-            lower.contains("local") || lower.contains("gguf") -> ModelContextProfile(modelName, 4096, 2048, 512, true)
-            else -> ModelContextProfile(modelName, 32_768, 4096) // Safe universal default
+            lower.contains("local") || lower.contains("gguf") -> {
+                val ctx = localContextOverride ?: 2048
+                val headroom = (ctx * 0.20f).toInt().coerceIn(256, 1024)
+                ModelContextProfile(modelName, ctx, ctx - headroom, targetHeadroomTokens = headroom, isLocalGguf = true)
+            }
+            else -> {
+                MODEL_PROFILES.entries.firstOrNull { lower.contains(it.key) }?.value
+                    ?: ModelContextProfile(modelName, 32_768, 4096)
+            }
         }
+
+        if (baseProfile.isLocalGguf && localContextOverride != null && localContextOverride > 0) {
+            val headroom = (localContextOverride * 0.20f).toInt().coerceIn(256, 1024)
+            return baseProfile.copy(
+                maxContextTokens = localContextOverride,
+                maxOutputTokens = localContextOverride - headroom,
+                targetHeadroomTokens = headroom
+            )
+        }
+
+        return baseProfile
     }
 
     /**
@@ -88,7 +118,6 @@ object ContextBudgetManager {
         for (line in lines) {
             val trimmed = line.trim()
             if (trimmed.isEmpty()) continue
-            // Code block lines or JSON syntax have higher token density
             val factor = if (trimmed.startsWith("```") || trimmed.startsWith("{") || trimmed.startsWith("\"") || trimmed.contains("val ") || trimmed.contains("fun ")) 3.2 else 3.8
             tokenCount += (trimmed.length / factor).toInt().coerceAtLeast(1)
         }
@@ -108,56 +137,92 @@ object ContextBudgetManager {
     }
 
     /**
-     * Analyzes and optimizes message history to fit safely within the model's token headroom.
+     * Analyzes and optimizes message history to fit safely within the model's dynamic token budget.
      */
     fun prepareContext(
         messages: List<OmniMessage>,
         modelName: String,
-        systemPromptOverride: String? = null
+        systemPromptOverride: String? = null,
+        localContextOverride: Int? = null,
+        rollingSummary: String? = null
     ): Pair<List<OmniMessage>, ContextBudgetReport> {
-        val profile = getProfileForModel(modelName)
+        val profile = getProfileForModel(modelName, localContextOverride)
         val maxAllowedTokens = profile.maxContextTokens - profile.targetHeadroomTokens
-        val originalTokens = estimateMessagesTokens(messages) + (systemPromptOverride?.let { estimateTokens(it) } ?: 0)
 
-        if (originalTokens <= maxAllowedTokens) {
+        val systemTokens = systemPromptOverride?.let { estimateTokens(it) } ?: 0
+        val summaryTokens = rollingSummary?.let { estimateTokens(it) } ?: 0
+        val baseNonMessageTokens = systemTokens + summaryTokens
+        val originalMessageTokens = estimateMessagesTokens(messages)
+        val originalTotalTokens = originalMessageTokens + baseNonMessageTokens
+
+        if (originalTotalTokens <= maxAllowedTokens) {
+            val breakdown = ContextBudgetBreakdown(
+                modelName = modelName,
+                totalLimit = profile.maxContextTokens,
+                systemAndRulesTokens = systemTokens,
+                rollingSummaryTokens = summaryTokens,
+                activeMessagesTokens = originalMessageTokens,
+                reservedHeadroomTokens = profile.targetHeadroomTokens,
+                totalUsedTokens = originalTotalTokens,
+                usagePercentage = (originalTotalTokens.toFloat() / profile.maxContextTokens.toFloat()).coerceIn(0f, 1f)
+            )
+
             val report = ContextBudgetReport(
-                originalEstimatedTokens = originalTokens,
-                compressedEstimatedTokens = originalTokens,
+                originalEstimatedTokens = originalTotalTokens,
+                compressedEstimatedTokens = originalTotalTokens,
                 tokenLimit = profile.maxContextTokens,
                 compressionRatio = 1.0f,
                 isTruncated = false,
                 preservedMessageCount = messages.size,
-                prunedMessageCount = 0
+                prunedMessageCount = 0,
+                breakdown = breakdown
             )
             return Pair(messages, report)
         }
 
         // Context Exceeded: Execute Intelligent Pruning
         val warnings = mutableListOf<String>()
-        warnings.add("Context tokens ($originalTokens) exceeded safe budget ($maxAllowedTokens) for $modelName. Pruning applied.")
-        LogKeeper.log("ContextBudgetManager", "PruningTriggered", "Pruning from $originalTokens to <= $maxAllowedTokens tokens.")
+        warnings.add("Context tokens ($originalTotalTokens) exceeded safe budget ($maxAllowedTokens) for $modelName. Sliding window pruning applied.")
+        LogKeeper.log("ContextBudgetManager", "PruningTriggered", "Pruning from $originalTotalTokens to <= $maxAllowedTokens tokens.")
 
         val pruned = SlidingWindowPruner.prune(
             messages = messages,
             targetTokenLimit = maxAllowedTokens,
-            systemTokens = systemPromptOverride?.let { estimateTokens(it) } ?: 0
+            systemTokens = baseNonMessageTokens
         )
 
-        val finalTokens = estimateMessagesTokens(pruned) + (systemPromptOverride?.let { estimateTokens(it) } ?: 0)
+        val prunedMessageTokens = estimateMessagesTokens(pruned)
+        val finalTokens = prunedMessageTokens + baseNonMessageTokens
         val prunedCount = (messages.size - pruned.size).coerceAtLeast(0)
 
+        val breakdown = ContextBudgetBreakdown(
+            modelName = modelName,
+            totalLimit = profile.maxContextTokens,
+            systemAndRulesTokens = systemTokens,
+            rollingSummaryTokens = summaryTokens,
+            activeMessagesTokens = prunedMessageTokens,
+            reservedHeadroomTokens = profile.targetHeadroomTokens,
+            totalUsedTokens = finalTokens,
+            usagePercentage = (finalTokens.toFloat() / profile.maxContextTokens.toFloat()).coerceIn(0f, 1f)
+        )
+
         val report = ContextBudgetReport(
-            originalEstimatedTokens = originalTokens,
+            originalEstimatedTokens = originalTotalTokens,
             compressedEstimatedTokens = finalTokens,
             tokenLimit = profile.maxContextTokens,
-            compressionRatio = if (originalTokens > 0) finalTokens.toFloat() / originalTokens.toFloat() else 1.0f,
+            compressionRatio = if (originalTotalTokens > 0) finalTokens.toFloat() / originalTotalTokens.toFloat() else 1.0f,
             isTruncated = true,
             preservedMessageCount = pruned.size,
             prunedMessageCount = prunedCount,
+            breakdown = breakdown,
             warnings = warnings
         )
 
-        LogKeeper.log("ContextBudgetManager", "PruningComplete", "Retained ${pruned.size} messages (~$finalTokens tokens, saved ${originalTokens - finalTokens} tokens).")
+        LogKeeper.log(
+            "ContextBudgetManager",
+            "PruningComplete",
+            "Retained ${pruned.size} messages (~$finalTokens tokens, pruned $prunedCount messages, preserved summary & pinned rules)."
+        )
         return Pair(pruned, report)
     }
 }

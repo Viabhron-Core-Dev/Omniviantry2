@@ -27,15 +27,28 @@ import com.example.engine.db.WorkspacePullRequestEntity
 import java.util.UUID
 
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+
 @Composable
 fun FileExplorer(
     onFileClick: (FileNode) -> Unit,
     onFileOpenWith: (FileNode, ViewerType) -> Unit = { node, _ -> onFileClick(node) },
     onCloseClick: (() -> Unit)? = null,
+    onNavigateToChat: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val fileTree by LocalFileManager.fileTreeState.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
+    var commentingReference by remember { mutableStateOf<StagedReference?>(null) }
     val workspaceName = remember(LocalFileManager.getWorkspaceDir().name) { 
         mutableStateOf(LocalFileManager.getWorkspaceName(LocalFileManager.getWorkspaceDir().name)) 
     }
@@ -78,12 +91,19 @@ fun FileExplorer(
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            placeholder = { Text("Search files...") },
+            placeholder = { Text("Search files & folders...") },
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                focusedBorderColor = MaterialTheme.colorScheme.primary
+            ),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
             singleLine = true,
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.onSurfaceVariant) },
             trailingIcon = {
                 if (searchQuery.isNotEmpty()) {
                     IconButton(onClick = { searchQuery = "" }) {
@@ -114,7 +134,16 @@ fun FileExplorer(
                         }
                     } else {
                         items(searchResults) { node ->
-                            SearchResultItem(node = node, onFileClick = onFileClick)
+                            SearchResultItem(
+                                node = node,
+                                onFileClick = onFileClick,
+                                onCommentClick = { n ->
+                                    commentingReference = StagedReference.GenericArtifact(
+                                        file = n.file,
+                                        summary = "Artifact ${n.name}"
+                                    )
+                                }
+                            )
                         }
                     }
                 } else {
@@ -123,7 +152,13 @@ fun FileExplorer(
                             node = rootNode,
                             level = 0,
                             onFileClick = onFileClick,
-                            onFileOpenWith = onFileOpenWith
+                            onFileOpenWith = onFileOpenWith,
+                            onCommentClick = { n ->
+                                commentingReference = StagedReference.GenericArtifact(
+                                    file = n.file,
+                                    summary = "Artifact ${n.name}"
+                                )
+                            }
                         )
                     }
                 }
@@ -137,6 +172,14 @@ fun FileExplorer(
             IssuesTab(workspaceId = workspaceId)
         } else if (selectedTabIndex == 2) {
             PullRequestsTab(workspaceId = workspaceId)
+        }
+
+        if (commentingReference != null) {
+            ArtifactCommentBottomSheet(
+                reference = commentingReference!!,
+                onDismiss = { commentingReference = null },
+                onNavigateToChat = onNavigateToChat
+            )
         }
     }
 }
@@ -215,7 +258,8 @@ fun searchFileTree(node: FileNode, query: String): List<FileNode> {
 @Composable
 fun SearchResultItem(
     node: FileNode,
-    onFileClick: (FileNode) -> Unit
+    onFileClick: (FileNode) -> Unit,
+    onCommentClick: (FileNode) -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -229,10 +273,10 @@ fun SearchResultItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = if (node.isDirectory) Icons.Default.Folder else Icons.Default.InsertDriveFile,
+            imageVector = getFileIcon(node, isExpanded = false),
             contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = if (node.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            modifier = Modifier.size(18.dp),
+            tint = getFileTint(node)
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
@@ -240,6 +284,19 @@ fun SearchResultItem(
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f)
         )
+        if (!node.isDirectory) {
+            IconButton(
+                onClick = { onCommentClick(node) },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    Icons.Default.AddComment,
+                    contentDescription = "Comment for AI",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
     }
 }
 
@@ -248,7 +305,8 @@ fun FileTreeNodeView(
     node: FileNode,
     level: Int,
     onFileClick: (FileNode) -> Unit,
-    onFileOpenWith: (FileNode, ViewerType) -> Unit = { n, _ -> onFileClick(n) }
+    onFileOpenWith: (FileNode, ViewerType) -> Unit = { n, _ -> onFileClick(n) },
+    onCommentClick: (FileNode) -> Unit = {}
 ) {
     var isExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -260,6 +318,13 @@ fun FileTreeNodeView(
     var showNewFolderDialog by remember { mutableStateOf(false) }
     var showCreateIssueDialog by remember { mutableStateOf(false) }
     var showCreatePRDialog by remember { mutableStateOf(false) }
+
+    var swipeOffsetX by remember { mutableFloatStateOf(0f) }
+    val animatedOffsetX by animateFloatAsState(
+        targetValue = swipeOffsetX,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "file_swipe_offset"
+    )
     
     val context = LocalContext.current
     
@@ -269,7 +334,6 @@ fun FileTreeNodeView(
         if (uris.isNotEmpty()) {
             scope.launch {
                 uris.forEach { uri ->
-                    // Get original file name if possible
                     var fileName = "uploaded_file_${System.currentTimeMillis()}"
                     context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                         if (cursor.moveToFirst()) {
@@ -291,7 +355,6 @@ fun FileTreeNodeView(
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                // Copy zip to a temporary file
                 val tempZip = java.io.File(context.cacheDir, "temp_upload_${System.currentTimeMillis()}.zip")
                 val result = LocalFileManager.copyUriToFile(context, uri, tempZip)
                 if (result.isSuccess) {
@@ -304,52 +367,140 @@ fun FileTreeNodeView(
     }
 
     Column {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable {
-                    if (node.isDirectory) {
-                        isExpanded = !isExpanded
-                    } else {
-                        onFileClick(node)
+                .then(
+                    if (!node.isDirectory) {
+                        Modifier.pointerInput(node.file.path) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    if (swipeOffsetX > 70f) {
+                                        onCommentClick(node)
+                                    }
+                                    swipeOffsetX = 0f
+                                },
+                                onDragCancel = {
+                                    swipeOffsetX = 0f
+                                },
+                                onHorizontalDrag = { _, dragAmount ->
+                                    val newOffset = swipeOffsetX + dragAmount
+                                    swipeOffsetX = newOffset.coerceIn(0f, 120f)
+                                }
+                            )
+                        }
+                    } else Modifier
+                )
+        ) {
+            // Revealed swipe-to-comment indicator
+            if (animatedOffsetX > 10f) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .padding(start = 16.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.AddComment,
+                            contentDescription = "Comment",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "Comment for AI",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
-                .padding(start = (level * 16 + 16).dp, top = 8.dp, bottom = 8.dp, end = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = getFileIcon(node, isExpanded),
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = if (node.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = node.name,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f)
-            )
-            IconButton(
-                onClick = { showContextMenu = true },
-                modifier = Modifier.size(24.dp)
-            ) {
-                Icon(Icons.Default.MoreVert, contentDescription = "More options", modifier = Modifier.size(16.dp))
             }
-            
-            DropdownMenu(
-                expanded = showContextMenu,
-                onDismissRequest = { showContextMenu = false }
-            ) {
-                if (!node.isDirectory) {
-                    DropdownMenuItem(
-                        text = { Text("Open With...") },
-                        leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        onClick = { 
-                            showContextMenu = false
-                            showOpenWithMenu = true 
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .offset { IntOffset(animatedOffsetX.toInt(), 0) }
+                    .background(MaterialTheme.colorScheme.surface)
+                    .clickable {
+                        if (node.isDirectory) {
+                            isExpanded = !isExpanded
+                        } else {
+                            onFileClick(node)
                         }
+                    }
+                    .padding(start = (level * 16 + 12).dp, top = 7.dp, bottom = 7.dp, end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (node.isDirectory) {
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
+                        contentDescription = if (isExpanded) "Collapse" else "Expand",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
+                } else {
+                    Spacer(modifier = Modifier.width(16.dp))
                 }
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = getFileIcon(node, isExpanded),
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = getFileTint(node)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = node.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (node.isDirectory) FontWeight.Medium else FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                if (!node.isDirectory) {
+                    IconButton(
+                        onClick = { onCommentClick(node) },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.AddComment,
+                            contentDescription = "Comment for AI",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+                IconButton(
+                    onClick = { showContextMenu = true },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "More options", modifier = Modifier.size(16.dp))
+                }
+                
+                DropdownMenu(
+                    expanded = showContextMenu,
+                    onDismissRequest = { showContextMenu = false }
+                ) {
+                    if (!node.isDirectory) {
+                        DropdownMenuItem(
+                            text = { Text("Comment for AI") },
+                            leadingIcon = { Icon(Icons.Default.AddComment, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            onClick = {
+                                showContextMenu = false
+                                onCommentClick(node)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Open With...") },
+                            leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            onClick = { 
+                                showContextMenu = false
+                                showOpenWithMenu = true 
+                            }
+                        )
+                    }
                 DropdownMenuItem(
                     text = { Text("Rename") },
                     onClick = { showContextMenu = false; showRenameDialog = true }
@@ -412,6 +563,7 @@ fun FileTreeNodeView(
                 }
             }
         }
+    }
 
 
         if (showRenameDialog) {
@@ -537,7 +689,8 @@ fun FileTreeNodeView(
                     node = child,
                     level = level + 1,
                     onFileClick = onFileClick,
-                    onFileOpenWith = onFileOpenWith
+                    onFileOpenWith = onFileOpenWith,
+                    onCommentClick = onCommentClick
                 )
             }
         }
@@ -545,14 +698,35 @@ fun FileTreeNodeView(
 }
 
 private fun getFileIcon(node: FileNode, isExpanded: Boolean): ImageVector {
+    val lower = node.name.lowercase()
     return when {
         node.isDirectory && isExpanded -> Icons.Default.FolderOpen
         node.isDirectory -> Icons.Default.Folder
-        node.name.endsWith(".kt") || node.name.endsWith(".java") -> Icons.Default.Code
-        node.name.endsWith(".json") || node.name.endsWith(".xml") -> Icons.Default.DataObject
-        node.name.endsWith(".md") || node.name.endsWith(".txt") -> Icons.Default.Description
-        node.name.endsWith(".pdf") -> Icons.Default.PictureAsPdf
-        node.name.endsWith(".zip") -> Icons.Default.FolderZip
+        lower.endsWith(".kt") || lower.endsWith(".java") || lower.endsWith(".py") || lower.endsWith(".js") || lower.endsWith(".ts") -> Icons.Default.Code
+        lower.endsWith(".json") || lower.endsWith(".xml") || lower.endsWith(".toml") || lower.endsWith(".gradle") || lower.endsWith(".kts") || lower.endsWith(".yaml") || lower.endsWith(".yml") -> Icons.Default.DataObject
+        lower.endsWith(".md") || lower.endsWith(".txt") -> Icons.Default.Description
+        lower.endsWith(".pdf") -> Icons.Default.PictureAsPdf
+        lower.endsWith(".zip") || lower.endsWith(".tar") || lower.endsWith(".gz") -> Icons.Default.FolderZip
+        lower.endsWith(".jpg") || lower.endsWith(".png") || lower.endsWith(".jpeg") || lower.endsWith(".webp") || lower.endsWith(".gif") || lower.endsWith(".svg") -> Icons.Default.Image
+        lower.endsWith(".mp4") || lower.endsWith(".mov") || lower.endsWith(".webm") -> Icons.Default.VideoFile
+        lower.endsWith(".mp3") || lower.endsWith(".wav") || lower.endsWith(".m4a") || lower.endsWith(".ogg") || lower.endsWith(".flac") -> Icons.Default.AudioFile
         else -> Icons.Default.InsertDriveFile
+    }
+}
+
+private fun getFileTint(node: FileNode): Color {
+    if (node.isDirectory) return Color(0xFFFFB300) // Folder warm amber
+    val lower = node.name.lowercase()
+    return when {
+        lower.endsWith(".kt") || lower.endsWith(".java") -> Color(0xFF9C27B0) // Kotlin purple
+        lower.endsWith(".py") -> Color(0xFF1976D2) // Python blue
+        lower.endsWith(".js") || lower.endsWith(".ts") || lower.endsWith(".tsx") -> Color(0xFFFBC02D) // JS/TS yellow
+        lower.endsWith(".json") || lower.endsWith(".xml") || lower.endsWith(".toml") || lower.endsWith(".gradle") || lower.endsWith(".kts") || lower.endsWith(".yaml") || lower.endsWith(".yml") -> Color(0xFFE65100) // Config orange
+        lower.endsWith(".md") || lower.endsWith(".txt") -> Color(0xFF00897B) // Docs teal
+        lower.endsWith(".jpg") || lower.endsWith(".png") || lower.endsWith(".jpeg") || lower.endsWith(".webp") || lower.endsWith(".gif") || lower.endsWith(".svg") -> Color(0xFFE91E63) // Media pink
+        lower.endsWith(".mp4") || lower.endsWith(".mov") || lower.endsWith(".webm") || lower.endsWith(".mp3") || lower.endsWith(".wav") -> Color(0xFF00ACC1) // AV cyan
+        lower.endsWith(".pdf") -> Color(0xFFD32F2F) // PDF red
+        lower.endsWith(".zip") -> Color(0xFF795548) // Zip brown
+        else -> Color(0xFF78909C) // Default slate
     }
 }

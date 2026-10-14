@@ -31,6 +31,7 @@ fun VideoViewer(
     val context = LocalContext.current
     var isPlaying by remember { mutableStateOf(false) }
     var videoViewInstance by remember { mutableStateOf<VideoView?>(null) }
+    var activeCommentRef by remember { mutableStateOf<StagedReference?>(null) }
 
     Box(
         modifier = modifier
@@ -78,7 +79,7 @@ fun VideoViewer(
                 Text(file.name, color = Color.White, style = MaterialTheme.typography.bodySmall, fontSize = 12.sp)
                 Spacer(Modifier.width(8.dp))
                 Text("${file.length() / 1024} KB", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = {
                         val posMs = videoViewInstance?.currentPosition?.toLong() ?: 0L
@@ -99,14 +100,44 @@ fun VideoViewer(
                         ).show()
                     },
                     shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                     modifier = Modifier.height(30.dp)
                 ) {
                     Icon(Icons.Default.BookmarkAdd, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Mark to AI", fontSize = 11.sp)
+                    Text("Mark", fontSize = 11.sp)
+                }
+
+                Spacer(Modifier.width(6.dp))
+
+                FilledTonalButton(
+                    onClick = {
+                        val posMs = videoViewInstance?.currentPosition?.toLong() ?: 0L
+                        val posSec = (posMs / 1000).toInt()
+                        val formatted = String.format(java.util.Locale.US, "%02d:%02d", posSec / 60, posSec % 60)
+                        activeCommentRef = StagedReference.MediaTimestamp(
+                            file = file,
+                            isVideo = true,
+                            timestampMs = posMs,
+                            formattedTime = formatted
+                        )
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.height(30.dp)
+                ) {
+                    Icon(Icons.Default.AddComment, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Comment", fontSize = 11.sp)
                 }
             }
+        }
+
+        if (activeCommentRef != null) {
+            ArtifactCommentBottomSheet(
+                reference = activeCommentRef!!,
+                onDismiss = { activeCommentRef = null }
+            )
         }
     }
 }

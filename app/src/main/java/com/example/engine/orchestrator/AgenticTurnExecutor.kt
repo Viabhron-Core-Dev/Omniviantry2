@@ -85,7 +85,16 @@ object AgenticTurnExecutor {
 
         while (currentIteration < MAX_AGENTIC_ITERATIONS) {
             currentIteration++
-            val omniMessages = prepareOmniMessages(workingMessages, effectiveSystemPrompt)
+            val omniMessages = if (currentIteration == 1 && assemblyResult != null && assemblyResult.prunedMessages.isNotEmpty()) {
+                val list = mutableListOf<OmniMessage>()
+                if (effectiveSystemPrompt.isNotBlank()) {
+                    list.add(OmniMessage(role = "system", content = effectiveSystemPrompt))
+                }
+                list.addAll(assemblyResult.prunedMessages)
+                list
+            } else {
+                prepareOmniMessages(workingMessages, effectiveSystemPrompt)
+            }
 
             // Step 1: Query Provider with Fallback Chain Auto-Routing
             val executionResult: FallbackExecutionResult = FallbackChainRouter.dispatchWithFallback(
@@ -143,6 +152,26 @@ object AgenticTurnExecutor {
                 )
                 workingMessages.add(finalAiMessage)
                 onEvent(AgenticEvent.TurnCompleted(finalAiMessage))
+
+                // Phase 14: Automated Fact Extraction & Rolling Summarization Trigger
+                com.example.engine.brain.FactExtractorEngine.extractAndPromoteAsync(
+                    context = context,
+                    sessionId = sessionId,
+                    userPrompt = latestPrompt,
+                    aiResponse = finalAiMessage.text
+                )
+                if (assemblyResult != null) {
+                    val retained = workingMessages.filter { rawMsg ->
+                        assemblyResult.prunedMessages.any { it.content == rawMsg.text }
+                    }
+                    com.example.engine.brain.RollingSummaryManager.checkAndTriggerRollingSummarization(
+                        context = context,
+                        sessionId = sessionId,
+                        fullHistory = workingMessages,
+                        retainedHistory = retained
+                    )
+                }
+
                 LogKeeper.log(
                     "AgenticTurnExecutor",
                     "TurnCompleted",

@@ -31,6 +31,7 @@ object FileHistoryEngine {
         if (revisionFile.exists()) {
             saveRevision(originalFile) // Save current before revert
             revisionFile.copyTo(originalFile, overwrite = true)
+            com.example.ui.code.WorkspaceChatBridge.recordFileEdit(originalFile, "Reverted Revision")
         }
     }
 }

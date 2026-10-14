@@ -2,6 +2,7 @@ package com.example.engine.brain
 
 import android.content.Context
 import com.example.engine.EngineRegistry
+import com.example.engine.db.AppDatabase
 import com.example.engine.db.MemoryCategory
 import com.example.engine.db.MemoryEntity
 import com.example.engine.fs.LocalFileManager
@@ -24,6 +25,7 @@ data class ContextAssemblyResult(
     val systemPrompt: String,
     val prunedMessages: List<OmniMessage>,
     val injectedMemories: List<MemoryEntity>,
+    val rollingSummary: String? = null,
     val workspaceRuleFilesLoaded: List<String>,
     val activeToolsCount: Int,
     val estimatedTokens: Int,
@@ -31,16 +33,17 @@ data class ContextAssemblyResult(
 )
 
 /**
- * Mini-Phase 11.4: Dynamic Context & System Prompt Injector.
- * Part of Phase 11: The Brain, Memory & Agent Ecosystem.
+ * Dynamic Context, Memory & Rolling Summarization Prompt Injector.
+ * Mitigates context drift across both Cloud LLMs and Local GGUF models.
  *
- * Dynamically synthesizes the multi-layer cognitive context:
+ * Synthesizes:
  * 1. Base Agent Persona & Developer Guidelines
  * 2. Thread-specific Instructions
- * 3. Workspace Rule Directives (AGENTS.md, GEMINI.md, etc.)
- * 4. Semantic Memory Recall (from MemoryRepository)
- * 5. Active Tool & Sandbox Schemas with Permissions
- * 6. Automated Token Budgeting & Sliding-Window Pruning
+ * 3. Workspace Rule Directives (AGENTS.md, RULES.md)
+ * 4. Pinned Architectural Memories (Permanent Invariants) + Semantic Recall
+ * 5. Rolling Conversation Summary (Compacted Historical Context)
+ * 6. Active Tool & Sandbox Schemas
+ * 7. Model-Specific Sliding-Window Pruning with Dynamic Headroom Guards
  */
 object PromptAssembler {
 
@@ -63,7 +66,8 @@ object PromptAssembler {
         messages: List<OmniMessage>,
         targetModel: String,
         customSystemPrompt: String? = null,
-        memoryLimit: Int = 5
+        memoryLimit: Int = 8,
+        localContextOverride: Int? = null
     ): ContextAssemblyResult = withContext(Dispatchers.IO) {
         val loadedRuleFiles = mutableListOf<String>()
         val promptBuilder = StringBuilder()
@@ -79,33 +83,60 @@ object PromptAssembler {
             promptBuilder.append("\n\n")
         }
 
-        // 3. Workspace Directives (AGENTS.md, GEMINI.md, etc.)
+        // 3. Workspace Directives (AGENTS.md, RULES.md, etc.)
         val workspaceDirectives = loadWorkspaceDirectives(sessionId, loadedRuleFiles)
         if (workspaceDirectives.isNotBlank()) {
             promptBuilder.append(workspaceDirectives)
             promptBuilder.append("\n\n")
         }
 
-        // 4. Semantic Memory Recall from MemoryRepository
-        val recalledMemories = recallMemories(context, userPrompt, memoryLimit)
-        if (recalledMemories.isNotEmpty()) {
+        // 3.5. Recent Workspace File Modifications (Two-way Code-to-Chat synchronization)
+        val recentEdits = com.example.ui.code.WorkspaceChatBridge.consumeRecentFileEdits()
+        if (recentEdits.isNotEmpty()) {
+            promptBuilder.append("## Recent Workspace File Modifications\n")
+            promptBuilder.append("The user recently edited the following workspace files directly via the Code tab:\n")
+            val timeFmt = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+            recentEdits.distinctBy { it.filePath }.forEach { edit ->
+                promptBuilder.append("- `${edit.fileName}` (${edit.editSource} at ${timeFmt.format(java.util.Date(edit.timestamp))})\n")
+            }
+            promptBuilder.append("Take these manual revisions into account when inspecting files or generating patches.\n\n")
+        }
+
+        // 4. Pinned Architectural Memories (Always Present) + Semantic Recall
+        val db = AppDatabase.getInstance(context)
+        val pinnedMemories = try {
+            db.memoryDao().getPinnedMemoriesSync()
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        val semanticMemories = recallMemories(context, userPrompt, memoryLimit)
+        val combinedMemories = (pinnedMemories + semanticMemories).distinctBy { it.id }
+
+        if (combinedMemories.isNotEmpty()) {
             promptBuilder.append("## Relevant Context & Architectural Memories\n")
-            promptBuilder.append("The following persistent memories from previous sessions and guidelines match the current prompt:\n")
-            recalledMemories.forEachIndexed { index, mem ->
-                val badge = when (mem.category) {
-                    MemoryCategory.PROJECT_RULE -> "[PROJECT_RULE]"
-                    MemoryCategory.ARCHITECTURAL_DECISION -> "[ARCHITECTURAL_DECISION]"
-                    MemoryCategory.USER_PREFERENCE -> "[USER_PREFERENCE]"
-                    MemoryCategory.SNIPPET -> "[SNIPPET]"
+            promptBuilder.append("The following permanent rules and architectural invariants govern this project:\n")
+            combinedMemories.forEachIndexed { index, mem ->
+                val badge = when {
+                    mem.isPinned -> "[PINNED ARCHITECTURE 📌]"
+                    mem.category == MemoryCategory.PROJECT_RULE -> "[PROJECT_RULE]"
+                    mem.category == MemoryCategory.ARCHITECTURAL_DECISION -> "[ARCHITECTURAL_DECISION]"
+                    mem.category == MemoryCategory.USER_PREFERENCE -> "[USER_PREFERENCE]"
                     else -> "[MEMORY]"
                 }
-                val pinBadge = if (mem.isPinned) " 📌" else ""
-                promptBuilder.append("${index + 1}. $badge$pinBadge **${mem.key}**: ${mem.content}\n")
+                promptBuilder.append("${index + 1}. $badge **${mem.key}**: ${mem.content}\n")
             }
             promptBuilder.append("\n")
         }
 
-        // 5. Active Tools & Sandbox Schemas with Permissions
+        // 5. Rolling Conversation Summary (Zero Context Drift across long sessions)
+        val rollingSummary = RollingSummaryManager.getRollingSummary(context, sessionId)
+        if (!rollingSummary.isNullOrBlank()) {
+            promptBuilder.append(rollingSummary)
+            promptBuilder.append("\n\n")
+        }
+
+        // 6. Active Tools & Sandbox Schemas with Permissions
         val activeTools = resolveActiveTools(context, sessionId)
         if (activeTools.isNotEmpty()) {
             promptBuilder.append(formatToolsSection(sessionId, activeTools))
@@ -115,26 +146,29 @@ object PromptAssembler {
         val fullSystemPrompt = promptBuilder.toString().trim()
         val estimatedTokens = ContextBudgetManager.estimateTokens(fullSystemPrompt)
 
-        // 6. Context Window Budgeting & Sliding-Window Pruning
+        // 7. Context Window Budgeting & Sliding-Window Pruning
         val (prunedMessages, report) = ContextBudgetManager.prepareContext(
             messages = messages,
             modelName = targetModel,
-            systemPromptOverride = fullSystemPrompt
+            systemPromptOverride = fullSystemPrompt,
+            localContextOverride = localContextOverride,
+            rollingSummary = rollingSummary
         )
 
         LogKeeper.log(
             "PromptAssembler",
             "AssemblyComplete",
-            "Assembled prompt with ${recalledMemories.size} injected memories, ${loadedRuleFiles.size} workspace rule files, and ${activeTools.size} tools (~$estimatedTokens tokens)"
+            "Assembled prompt: ${combinedMemories.size} memories (${pinnedMemories.size} pinned), summary=${rollingSummary != null}, ~${report.compressedEstimatedTokens}/${report.tokenLimit} tokens"
         )
 
         ContextAssemblyResult(
             systemPrompt = fullSystemPrompt,
             prunedMessages = prunedMessages,
-            injectedMemories = recalledMemories,
+            injectedMemories = combinedMemories,
+            rollingSummary = rollingSummary,
             workspaceRuleFilesLoaded = loadedRuleFiles,
             activeToolsCount = activeTools.size,
-            estimatedTokens = estimatedTokens,
+            estimatedTokens = report.compressedEstimatedTokens,
             budgetReport = report
         )
     }
@@ -149,7 +183,8 @@ object PromptAssembler {
         messages: List<ChatMessage>,
         targetModel: String,
         customSystemPrompt: String? = null,
-        memoryLimit: Int = 5
+        memoryLimit: Int = 8,
+        localContextOverride: Int? = null
     ): ContextAssemblyResult {
         val omniMessages = convertChatMessagesToOmni(messages)
         return assemble(
@@ -159,7 +194,8 @@ object PromptAssembler {
             messages = omniMessages,
             targetModel = targetModel,
             customSystemPrompt = customSystemPrompt,
-            memoryLimit = memoryLimit
+            memoryLimit = memoryLimit,
+            localContextOverride = localContextOverride
         )
     }
 
@@ -175,7 +211,7 @@ You solve real engineering tasks, inspect codebases, execute deterministic tools
 2. No Mock Data: Never substitute with fake mock APIs, simulated hardware, or stubbed fallbacks when real tools or integrations are available.
 3. Surgical Modifications: When updating code, prioritize exact unique target substrings and clean replacements.
 4. Structured Reasoning: When solving complex problems or planning multi-step tool executions, formulate your thoughts within <thought>...</thought> tags before issuing tool calls or responses.
-5. Concise Responses: Summarize accomplishments clearly and accurately without conversational filler.
+5. Context Coherence: Adhere strictly to the Pinned Architectural Memories and Conversation History Summary provided below.
         """.trimIndent()
     }
 

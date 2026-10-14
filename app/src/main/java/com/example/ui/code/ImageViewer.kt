@@ -49,6 +49,7 @@ fun ImageViewer(
     // Bounding Box markup state (coordinates in normalized 0..1 or screen coords)
     var boxStart by remember { mutableStateOf<Offset?>(null) }
     var boxEnd by remember { mutableStateOf<Offset?>(null) }
+    var activeCommentRef by remember { mutableStateOf<StagedReference?>(null) }
 
     val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(initialValue = null, file) {
         value = withContext(Dispatchers.IO) {
@@ -257,9 +258,36 @@ fun ImageViewer(
                             Spacer(Modifier.width(4.dp))
                             Text("Mark to Chat", fontSize = 12.sp)
                         }
+
+                        FilledTonalButton(
+                            onClick = {
+                                val s = boxStart!!
+                                val e = boxEnd!!
+                                val coords = "x1=${minOf(s.x, e.x).toInt()}, y1=${minOf(s.y, e.y).toInt()}, w=${width.toInt()}, h=${height.toInt()}"
+                                activeCommentRef = StagedReference.ImageRegion(
+                                    file = file,
+                                    coordinates = coords,
+                                    description = "Region [${width.toInt()}x${height.toInt()}px]"
+                                )
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.AddComment, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Comment", fontSize = 12.sp)
+                        }
                     }
                 }
             }
+        }
+
+        if (activeCommentRef != null) {
+            ArtifactCommentBottomSheet(
+                reference = activeCommentRef!!,
+                onDismiss = { activeCommentRef = null },
+                onNavigateToChat = { onPassSelectionToChat?.invoke(activeCommentRef!!.label) }
+            )
         }
     }
 }

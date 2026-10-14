@@ -22,4 +22,10 @@ interface ChatSettingsDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveSettings(settings: ChatSettingsEntity)
+
+    @Query("UPDATE chat_settings SET rollingSummary = :summary, summaryUpToMessageId = :messageId WHERE workspaceId = :workspaceId")
+    suspend fun updateRollingSummary(workspaceId: String, summary: String?, messageId: String?)
+
+    @Query("UPDATE chat_settings SET rollingSummary = NULL, summaryUpToMessageId = NULL WHERE workspaceId = :workspaceId")
+    suspend fun clearRollingSummary(workspaceId: String)
 }
