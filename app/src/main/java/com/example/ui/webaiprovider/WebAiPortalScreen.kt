@@ -1,18 +1,13 @@
 package com.example.ui.webaiprovider
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -30,11 +25,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.engine.lifecycle.HeavyTaskThrottler
-import com.example.engine.webaiprovider.WebAiAccountProfile
-import com.example.engine.webaiprovider.WebAiPresetBundle
-import com.example.engine.webaiprovider.WebAiProviderManager
-import com.example.engine.webaiprovider.WebAiService
-import com.example.engine.webaiprovider.WebAiSessionMode
+import com.example.engine.webaiprovider.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,6 +36,7 @@ fun WebAiPortalScreen(
     val context = LocalContext.current
     LaunchedEffect(Unit) {
         WebAiProviderManager.init(context)
+        WebAiCustomTabManager.init(context)
         // Ensure heavy tasks are suspended while in Web AI Hub
         HeavyTaskThrottler.suspendHeavyTasks(context)
     }
@@ -57,10 +49,6 @@ fun WebAiPortalScreen(
     val freedMemoryMb by HeavyTaskThrottler.lastFreedMemoryMb.collectAsState()
 
     val enabledServices = remember(services) { services.filter { it.enabled } }
-    val selectedServiceIds = remember { mutableStateListOf<String>() }
-
-    // State for Preset launch confirmation dialog
-    var pendingPresetToLaunch by remember { mutableStateOf<WebAiPresetBundle?>(null) }
 
     Scaffold(
         topBar = {
@@ -68,19 +56,19 @@ fun WebAiPortalScreen(
                 title = {
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Web AI Hub", fontWeight = FontWeight.Bold)
+                            Text("Web AI Bookmarks", fontWeight = FontWeight.Bold)
                             Spacer(Modifier.width(8.dp))
                             if (openTabCount > 0) {
                                 Badge(
                                     containerColor = MaterialTheme.colorScheme.primary,
                                     contentColor = MaterialTheme.colorScheme.onPrimary
                                 ) {
-                                    Text("$openTabCount active", fontSize = 10.sp)
+                                    Text("$openTabCount saved", fontSize = 10.sp)
                                 }
                             }
                         }
                         Text(
-                            "Multi-service browser sessions",
+                            "Single-tap launch • Multi-account routing",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -100,44 +88,6 @@ fun WebAiPortalScreen(
                     }
                 }
             )
-        },
-        bottomBar = {
-            if (selectedServiceIds.isNotEmpty()) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding(),
-                    tonalElevation = 8.dp,
-                    shadowElevation = 8.dp
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "${selectedServiceIds.size} selected",
-                            fontWeight = FontWeight.SemiBold,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Button(
-                            onClick = {
-                                val toLaunch = enabledServices.filter { selectedServiceIds.contains(it.id) }
-                                launchServices(context, toLaunch)
-                                WebAiProviderManager.updateOpenTabCount(openTabCount + toLaunch.size)
-                                selectedServiceIds.clear()
-                            },
-                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
-                        ) {
-                            Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Launch Selected (${selectedServiceIds.size})")
-                        }
-                    }
-                }
-            }
         }
     ) { padding ->
         LazyColumn(
@@ -146,7 +96,7 @@ fun WebAiPortalScreen(
                 .padding(padding)
                 .padding(horizontal = 16.dp),
             contentPadding = PaddingValues(
-                bottom = if (selectedServiceIds.isNotEmpty()) 16.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
             ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -254,7 +204,7 @@ fun WebAiPortalScreen(
                                 color = if (isFirefox) Color(0xFFD84A1B) else MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Native bottom toolbar enabled for multi-tab switching & session control",
+                                text = "Clean native Custom Tabs • Supports multi-account browser routing",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -270,8 +220,8 @@ fun WebAiPortalScreen(
                 }
             }
 
-            // Resume Active Session Card (Decision #3: Resume Last Active Session)
-            if (openTabCount > 0 || !lastActiveUrl.isNullOrBlank()) {
+            // Resume Last Active Session Card
+            if (!lastActiveUrl.isNullOrBlank()) {
                 item {
                     val activeName = lastActiveServiceName ?: "Active Session"
                     val activeUrl = lastActiveUrl ?: "https://chatgpt.com"
@@ -313,7 +263,7 @@ fun WebAiPortalScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        "Resume Active Session",
+                                        "Last Active Session",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp
                                     )
@@ -326,7 +276,7 @@ fun WebAiPortalScreen(
                                     )
                                 }
                                 Text(
-                                    "Last active: $activeName",
+                                    activeName,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -336,6 +286,7 @@ fun WebAiPortalScreen(
                             Button(
                                 onClick = {
                                     launchUrl(context, activeUrl, activeName)
+                                    onNavigateBack()
                                 },
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                                 shape = RoundedCornerShape(8.dp)
@@ -349,35 +300,7 @@ fun WebAiPortalScreen(
                 }
             }
 
-            // Quick-Launch Presets Carousel (Mini-Phase 3)
-            item {
-                Column {
-                    Text(
-                        "Quick-Launch Presets",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        for (preset in WebAiProviderManager.defaultPresets) {
-                            PresetBundleCard(
-                                preset = preset,
-                                onClick = {
-                                    // Decision #1: Preset launch asks for confirmation
-                                    pendingPresetToLaunch = preset
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Section Header: Available Providers
+            // Section Header: Configured AI Bookmarks
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -385,53 +308,37 @@ fun WebAiPortalScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "AI Web Providers",
+                        "AI Bookmarks (${enabledServices.size})",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     TextButton(
-                        onClick = {
-                            if (selectedServiceIds.size == enabledServices.size) {
-                                selectedServiceIds.clear()
-                            } else {
-                                selectedServiceIds.clear()
-                                selectedServiceIds.addAll(enabledServices.map { it.id })
-                            }
-                        }
+                        onClick = onNavigateToSettings
                     ) {
-                        Text(
-                            if (selectedServiceIds.size == enabledServices.size) "Deselect All" else "Select All",
-                            fontSize = 12.sp
-                        )
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add / Edit", fontSize = 12.sp)
                     }
                 }
             }
 
-            // Providers Grid / List
+            // Providers Grid (2 items per row)
             items(enabledServices.chunked(2)) { pair ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     for (service in pair) {
-                        val isSelected = selectedServiceIds.contains(service.id)
                         Box(modifier = Modifier.weight(1f)) {
                             WebAiServiceCard(
                                 service = service,
-                                isSelected = isSelected,
-                                onToggleSelect = {
-                                    if (isSelected) {
-                                        selectedServiceIds.remove(service.id)
-                                    } else {
-                                        selectedServiceIds.add(service.id)
-                                    }
-                                },
                                 onProfileSelected = { profileId ->
                                     WebAiProviderManager.setActiveProfileId(service.id, profileId)
+                                    WebAiCustomTabManager.syncBookmarksFromProviderManager(context)
                                 },
                                 onLaunch = {
-                                    launchServices(context, listOf(service))
-                                    WebAiProviderManager.updateOpenTabCount(openTabCount + 1)
+                                    WebAiCustomTabManager.launchBookmark(context, service)
+                                    onNavigateBack()
                                 }
                             )
                         }
@@ -477,161 +384,18 @@ fun WebAiPortalScreen(
             }
         }
     }
-
-    // Preset Launch Confirmation Dialog (Decision #1)
-    pendingPresetToLaunch?.let { preset ->
-        val targetServices = remember(preset, enabledServices) {
-            if (preset.serviceIds.isEmpty()) {
-                enabledServices
-            } else {
-                enabledServices.filter { preset.serviceIds.contains(it.id) }
-            }
-        }
-
-        AlertDialog(
-            onDismissRequest = { pendingPresetToLaunch = null },
-            icon = {
-                Icon(
-                    when (preset.iconName) {
-                        "Search" -> Icons.Default.Search
-                        "Code" -> Icons.Default.Code
-                        "Psychology" -> Icons.Default.Psychology
-                        else -> Icons.Default.Layers
-                    },
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            },
-            title = {
-                Text(preset.title, fontWeight = FontWeight.Bold)
-            },
-            text = {
-                Column {
-                    Text(
-                        "Launch preset bundle with ${targetServices.size} providers?",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    for (svc in targetServices) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 2.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(svc.name, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        launchServices(context, targetServices)
-                        WebAiProviderManager.updateOpenTabCount(openTabCount + targetServices.size)
-                        pendingPresetToLaunch = null
-                    }
-                ) {
-                    Text("Launch Now")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { pendingPresetToLaunch = null }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-}
-
-@Composable
-fun PresetBundleCard(
-    preset: WebAiPresetBundle,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .width(180.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .clickable { onClick() },
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        when (preset.iconName) {
-                            "Search" -> Icons.Default.Search
-                            "Code" -> Icons.Default.Code
-                            "Psychology" -> Icons.Default.Psychology
-                            else -> Icons.Default.Layers
-                        },
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                Icon(
-                    Icons.Default.PlayCircle,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                preset.title,
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                preset.subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
 }
 
 @Composable
 fun WebAiServiceCard(
     service: WebAiService,
-    isSelected: Boolean,
-    onToggleSelect: () -> Unit,
     onProfileSelected: (String) -> Unit,
     onLaunch: () -> Unit
 ) {
     val brandColor = remember(service.brandColorHex) {
         try {
             Color(android.graphics.Color.parseColor(service.brandColorHex))
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             Color(0xFF1A73E8)
         }
     }
@@ -642,7 +406,7 @@ fun WebAiServiceCard(
             ?: service.profiles.firstOrNull()
     }
 
-    // Dropdown state for profile switcher (Decision #2: Compact dropdown on card)
+    // Dropdown state for profile switcher
     var isProfileDropdownExpanded by remember { mutableStateOf(false) }
 
     Card(
@@ -650,18 +414,14 @@ fun WebAiServiceCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .border(
-                width = if (isSelected) 2.dp else 1.dp,
-                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
                 shape = RoundedCornerShape(16.dp)
             )
-            .clickable { onToggleSelect() },
+            .clickable { onLaunch() },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            }
+            containerColor = MaterialTheme.colorScheme.surface
         )
     ) {
         Column(
@@ -688,9 +448,11 @@ fun WebAiServiceCard(
                         fontSize = 13.sp
                     )
                 }
-                Checkbox(
-                    checked = isSelected,
-                    onCheckedChange = { onToggleSelect() }
+                Icon(
+                    Icons.Default.BookmarkBorder,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(18.dp)
                 )
             }
 
@@ -703,7 +465,7 @@ fun WebAiServiceCard(
                 overflow = TextOverflow.Ellipsis
             )
 
-            // Profile Dropdown Indicator (Decision #2: Dropdown directly on card)
+            // Profile Dropdown Indicator
             Box {
                 Row(
                     modifier = Modifier
@@ -743,8 +505,15 @@ fun WebAiServiceCard(
                                         fontWeight = if (p.id == activeProfile?.id) FontWeight.Bold else FontWeight.Normal,
                                         fontSize = 13.sp
                                     )
+                                    val browserHint = if (!p.targetPackage.isNullOrBlank()) {
+                                        if (p.targetPackage.contains("firefox", true)) "Firefox"
+                                        else if (p.targetPackage.contains("chrome", true)) "Chrome"
+                                        else "Custom Browser"
+                                    } else {
+                                        p.sessionMode.name.lowercase().replaceFirstChar { it.uppercase() }
+                                    }
                                     Text(
-                                        p.sessionMode.name.lowercase().replaceFirstChar { it.uppercase() },
+                                        browserHint,
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -780,10 +549,10 @@ fun WebAiServiceCard(
 
             // Session Mode Pill badge
             val sessionMode = activeProfile?.sessionMode ?: WebAiSessionMode.DEFAULT
-            SessionModePill(mode = sessionMode)
+            SessionModePill(mode = sessionMode, targetPackage = activeProfile?.targetPackage)
 
             Spacer(Modifier.height(10.dp))
-            OutlinedButton(
+            Button(
                 onClick = onLaunch,
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(vertical = 6.dp),
@@ -798,11 +567,13 @@ fun WebAiServiceCard(
 }
 
 @Composable
-fun SessionModePill(mode: WebAiSessionMode) {
-    val (label, color, icon) = when (mode) {
-        WebAiSessionMode.DEFAULT -> Triple("Shared Session", MaterialTheme.colorScheme.primary, Icons.Default.Sync)
-        WebAiSessionMode.EPHEMERAL -> Triple("Incognito Mode", Color(0xFF6B7280), Icons.Default.VisibilityOff)
-        WebAiSessionMode.CUSTOM_BROWSER -> Triple("External App", Color(0xFF8B5CF6), Icons.Default.OpenInNew)
+fun SessionModePill(mode: WebAiSessionMode, targetPackage: String? = null) {
+    val (label, color, icon) = when {
+        mode == WebAiSessionMode.EPHEMERAL -> Triple("Incognito Mode", Color(0xFF6B7280), Icons.Default.VisibilityOff)
+        !targetPackage.isNullOrBlank() && targetPackage.contains("firefox", true) -> Triple("Firefox", Color(0xFFFF7139), Icons.Default.Language)
+        !targetPackage.isNullOrBlank() && targetPackage.contains("chrome", true) -> Triple("Chrome", Color(0xFF1A73E8), Icons.Default.Language)
+        mode == WebAiSessionMode.CUSTOM_BROWSER -> Triple("External App", Color(0xFF8B5CF6), Icons.Default.OpenInNew)
+        else -> Triple("Shared Session", MaterialTheme.colorScheme.primary, Icons.Default.Sync)
     }
 
     Row(
@@ -818,22 +589,17 @@ fun SessionModePill(mode: WebAiSessionMode) {
     }
 }
 
-private fun launchServices(context: Context, services: List<WebAiService>) {
-    if (services.isEmpty()) return
-    com.example.engine.webaiprovider.WebAiCustomTabManager.launchSession(context, services)
-}
-
 private fun launchUrl(context: Context, url: String, serviceName: String) {
-    val service = com.example.engine.webaiprovider.WebAiProviderManager.services.value.firstOrNull { it.baseUrl == url || it.name.equals(serviceName, ignoreCase = true) }
+    val service = WebAiProviderManager.services.value.firstOrNull { it.baseUrl == url || it.name.equals(serviceName, ignoreCase = true) }
     if (service != null) {
-        com.example.engine.webaiprovider.WebAiCustomTabManager.launchSession(context, listOf(service))
+        WebAiCustomTabManager.launchBookmark(context, service)
     } else {
-        val tempService = com.example.engine.webaiprovider.WebAiService(
+        val tempService = WebAiService(
             id = "custom_" + System.currentTimeMillis(),
             name = serviceName,
             baseUrl = url,
             brandColorHex = "#1A73E8"
         )
-        com.example.engine.webaiprovider.WebAiCustomTabManager.launchSession(context, listOf(tempService))
+        WebAiCustomTabManager.launchBookmark(context, tempService)
     }
 }

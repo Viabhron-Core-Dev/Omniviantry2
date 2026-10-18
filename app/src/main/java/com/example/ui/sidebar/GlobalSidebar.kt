@@ -28,6 +28,7 @@ import com.example.engine.fs.LocalFileManager
 import com.example.engine.lifecycle.HeavyTaskThrottler
 import com.example.engine.webaiprovider.WebAiCustomTabManager
 import com.example.engine.webaiprovider.WebAiProviderManager
+import com.example.engine.webaiprovider.WebAiSessionMode
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -217,11 +218,16 @@ fun GlobalSidebar(
                                 }
                                 Text(
                                     if (activeTabs.isEmpty()) {
-                                        "Launch web AI provider"
+                                        "Manage AI bookmarks"
                                     } else if (isWebAiFolded) {
-                                        "${activeTabs.size} open browser tab${if (activeTabs.size > 1) "s" else ""}"
+                                        val activeTab = activeTabs.firstOrNull { it.id == currentTabId }
+                                        if (activeTab != null) {
+                                            "Active: ${activeTab.serviceName} • Tap to view"
+                                        } else {
+                                            "${activeTabs.size} AI bookmark${if (activeTabs.size > 1) "s" else ""}"
+                                        }
                                     } else {
-                                        "Tap tab to jump • ✕ to close"
+                                        "Tap to launch • Single-tab mode"
                                     },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -239,7 +245,7 @@ fun GlobalSidebar(
                                 Spacer(Modifier.width(6.dp))
                                 Icon(
                                     imageVector = if (isWebAiFolded) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
-                                    contentDescription = if (isWebAiFolded) "Expand open tabs" else "Collapse open tabs",
+                                    contentDescription = if (isWebAiFolded) "Expand bookmarks" else "Collapse bookmarks",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -253,7 +259,7 @@ fun GlobalSidebar(
                             }
                         }
 
-                        // Unfolded List of Active Tabs
+                        // Unfolded List of AI Bookmarks
                         AnimatedVisibility(
                             visible = !isWebAiFolded && activeTabs.isNotEmpty(),
                             enter = expandVertically() + fadeIn(),
@@ -270,7 +276,7 @@ fun GlobalSidebar(
                                     modifier = Modifier.padding(bottom = 6.dp)
                                 )
 
-                                // Action header row: "OPEN TABS (N)" + [+] add + [✕] close all
+                                // Action header row: "BOOKMARKS (N)" + [+] add + [✕] clear active
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -279,7 +285,7 @@ fun GlobalSidebar(
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Text(
-                                        "OPEN TABS (${activeTabs.size})",
+                                        "AI BOOKMARKS (${activeTabs.size})",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary,
@@ -298,28 +304,28 @@ fun GlobalSidebar(
                                         ) {
                                             Icon(
                                                 Icons.Default.Add,
-                                                contentDescription = "Add new AI tab",
+                                                contentDescription = "Manage bookmarks",
                                                 tint = MaterialTheme.colorScheme.primary,
                                                 modifier = Modifier.size(18.dp)
                                             )
                                         }
 
-                                        Spacer(Modifier.width(4.dp))
-
-                                        // [✕] Close All tabs button at the top
-                                        IconButton(
-                                            onClick = {
-                                                WebAiCustomTabManager.closeAllTabs(context)
-                                                isWebAiFolded = true
-                                            },
-                                            modifier = Modifier.size(28.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Close,
-                                                contentDescription = "Close all tabs",
-                                                tint = MaterialTheme.colorScheme.error,
-                                                modifier = Modifier.size(18.dp)
-                                            )
+                                        if (currentTabId != null) {
+                                            Spacer(Modifier.width(4.dp))
+                                            // [✕] Clear active session
+                                            IconButton(
+                                                onClick = {
+                                                    WebAiCustomTabManager.closeActiveSession(context)
+                                                },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Close,
+                                                    contentDescription = "Clear active session",
+                                                    tint = MaterialTheme.colorScheme.outline,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -396,9 +402,24 @@ fun GlobalSidebar(
                                                         )
                                                     }
                                                 }
-                                                if (tab.profileLabel.isNotBlank() && tab.profileLabel != "Default") {
+                                                val browserLabel = remember(tab.targetPackage, tab.sessionMode) {
+                                                    if (tab.sessionMode == WebAiSessionMode.EPHEMERAL) {
+                                                        "Incognito"
+                                                    } else if (!tab.targetPackage.isNullOrBlank()) {
+                                                        if (tab.targetPackage.contains("firefox", ignoreCase = true)) "Firefox"
+                                                        else if (tab.targetPackage.contains("chrome", ignoreCase = true)) "Chrome"
+                                                        else "Custom Browser"
+                                                    } else null
+                                                }
+                                                val subtitleText = when {
+                                                    tab.profileLabel.isNotBlank() && tab.profileLabel != "Default" && browserLabel != null -> "${tab.profileLabel} • $browserLabel"
+                                                    tab.profileLabel.isNotBlank() && tab.profileLabel != "Default" -> tab.profileLabel
+                                                    browserLabel != null -> browserLabel
+                                                    else -> null
+                                                }
+                                                if (subtitleText != null) {
                                                     Text(
-                                                        tab.profileLabel,
+                                                        subtitleText,
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                         maxLines = 1
